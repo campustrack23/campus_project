@@ -1,5 +1,5 @@
 # 🚀 Campus Track
-**By Mohit Chauhan and Yash Gulati**
+**By Mohit Chauhan & Yash Gulati**
 
 A comprehensive Flutter application designed to modernize the campus experience. It provides students, teachers, and administrators with a single platform to manage timetables, track attendance via QR codes, handle internal marks, and communicate effectively.
 
