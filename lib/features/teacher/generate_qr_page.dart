@@ -9,12 +9,12 @@ import 'package:secure_application/secure_application.dart';
 
 import '../../core/models/attendance_session.dart';
 import '../../core/models/timetable_entry.dart';
-// --- FIX: Import the new error widget ---
 import '../common/widgets/async_error_widget.dart';
 import '../../main.dart';
 
-// Provider to create and hold the session
-final sessionProvider = FutureProvider.autoDispose.family<AttendanceSession, String>((ref, entryId) async {
+/// Provider to create and hold the session
+final sessionProvider =
+FutureProvider.autoDispose.family<AttendanceSession, String>((ref, entryId) async {
   final ttRepo = ref.watch(timetableRepoProvider);
   final authRepo = ref.watch(authRepoProvider);
   final attRepo = ref.watch(attendanceRepoProvider);
@@ -34,10 +34,12 @@ final sessionProvider = FutureProvider.autoDispose.family<AttendanceSession, Str
   return session;
 });
 
-// Provider to listen to the attendees
-final attendeesStreamProvider = StreamProvider.autoDispose.family<List<QueryDocumentSnapshot>, String>((ref, sessionId) {
-  return ref.watch(attendanceRepoProvider).listenToAttendees(sessionId);
-});
+/// Provider to listen to the attendees
+final attendeesStreamProvider = StreamProvider.autoDispose
+    .family<List<QueryDocumentSnapshot<Map<String, dynamic>>>, String>(
+        (ref, sessionId) {
+      return ref.watch(attendanceRepoProvider).listenToAttendees(sessionId);
+    });
 
 class GenerateQRPage extends ConsumerStatefulWidget {
   final String? entryId;
@@ -84,7 +86,9 @@ class _GenerateQRPageState extends ConsumerState<GenerateQRPage> {
   @override
   Widget build(BuildContext context) {
     if (widget.entryId == null) {
-      return Scaffold(appBar: AppBar(), body: const Center(child: Text('Error: No class ID provided.')));
+      return Scaffold(
+          appBar: AppBar(),
+          body: const Center(child: Text('Error: No class ID provided.')));
     }
 
     final asyncSession = ref.watch(sessionProvider(widget.entryId!));
@@ -96,12 +100,10 @@ class _GenerateQRPageState extends ConsumerState<GenerateQRPage> {
         ),
         body: asyncSession.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          // --- FIX: Use the new error widget ---
           error: (err, stack) => AsyncErrorWidget(
             message: err.toString(),
             onRetry: () => ref.invalidate(sessionProvider(widget.entryId!)),
           ),
-          // --- End of Fix ---
           data: (session) {
             final asyncAttendees = ref.watch(attendeesStreamProvider(session.id));
             return Center(
@@ -112,7 +114,10 @@ class _GenerateQRPageState extends ConsumerState<GenerateQRPage> {
                   children: [
                     Text(
                       'Scan to Mark Attendance',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                      style: Theme.of(context)
+                          .textTheme
+                          .headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.bold),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 8),
@@ -124,8 +129,7 @@ class _GenerateQRPageState extends ConsumerState<GenerateQRPage> {
                       _formatTime(_secondsRemaining),
                       style: Theme.of(context).textTheme.displaySmall?.copyWith(
                           fontWeight: FontWeight.bold,
-                          color: _secondsRemaining < 60 ? Colors.red : null
-                      ),
+                          color: _secondsRemaining < 60 ? Colors.red : null),
                     ),
                     const SizedBox(height: 24),
                     Container(
@@ -143,24 +147,49 @@ class _GenerateQRPageState extends ConsumerState<GenerateQRPage> {
                     const SizedBox(height: 24),
                     asyncAttendees.when(
                       loading: () => const Text('Waiting for students...'),
-                      error: (e, s) => Text('Error: $e', style: const TextStyle(color: Colors.red)),
+                      error: (e, s) =>
+                          Text('Error: $e', style: const TextStyle(color: Colors.red)),
                       data: (attendees) => Text(
                         '${attendees.length} Students Marked',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.bold),
                       ),
                     ),
                     const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                        style: FilledButton.styleFrom(
+                            padding:
+                            const EdgeInsets.symmetric(vertical: 16)),
                         onPressed: () async {
                           _timer?.cancel();
-                          final localContext = context;
-                          await ref.read(attendanceRepoProvider).finalizeAttendance(session.id);
 
-                          if (!localContext.mounted) return;
-                          localContext.replace('/teacher/review-attendance?sessionId=${session.id}');
+                          final messenger = ScaffoldMessenger.of(context);
+
+                          final allStudents =
+                          await ref.read(authRepoProvider).allStudents();
+                          final studentsInSection = allStudents
+                              .where((s) =>
+                          (s.section ?? '').toUpperCase() ==
+                              session.section.toUpperCase())
+                              .toList();
+
+                          await ref.read(attendanceRepoProvider).finalizeAttendance(
+                            sessionId: session.id,
+                            studentsInSection: studentsInSection,
+                          );
+
+                          if (!mounted) return;
+
+                          // FIX: Use Path Parameter format (/path/id) instead of Query Parameter (?id=...)
+                          GoRouter.of(context).replace('/teacher/review-attendance/${session.id}');
+
+                          messenger.showSnackBar(
+                            const SnackBar(content: Text('Attendance finalized')),
+                          );
                         },
                         child: const Text('Done', style: TextStyle(fontSize: 18)),
                       ),

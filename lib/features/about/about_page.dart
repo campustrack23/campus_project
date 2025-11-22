@@ -8,10 +8,15 @@ import '../common/widgets/app_drawer.dart';
 class AboutPage extends ConsumerWidget {
   const AboutPage({super.key});
 
+  static const String appVersion = "1.1.0";
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final titleStyle = Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold);
-    final headingStyle = Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold);
+    final theme = Theme.of(context);
+    final titleStyle =
+    theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold);
+    final headingStyle =
+    theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold);
 
     return Scaffold(
       appBar: AppBar(
@@ -19,6 +24,7 @@ class AboutPage extends ConsumerWidget {
           builder: (ctx) => IconButton(
             tooltip: 'Menu',
             icon: const Icon(Icons.menu),
+            // FIX: safer drawer opening
             onPressed: () => Scaffold.of(ctx).openDrawer(),
           ),
         ),
@@ -26,75 +32,92 @@ class AboutPage extends ConsumerWidget {
         actions: const [ProfileAvatarAction()],
       ),
       drawer: const AppDrawer(),
+
+      // FIX: consistent Material spacing
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Text('CampusTrack', style: titleStyle),
           const SizedBox(height: 6),
-          const Text('Your smart campus assistant for attendance and timetables.'),
+          const Text(
+            'Your smart campus assistant for attendance, internal marks, notifications and timetables.',
+          ),
           const Divider(height: 32),
 
           Text('Key Features', style: headingStyle),
           const SizedBox(height: 12),
+
           const _FeatureTile(
             icon: Icons.qr_code_scanner,
             title: 'QR Code Attendance',
-            subtitle: 'Teachers generate a unique, time-limited QR code. Students scan to mark themselves present.',
+            subtitle:
+            'Teachers generate a time-limited QR code. Students scan to mark attendance automatically.',
           ),
           const _FeatureTile(
             icon: Icons.assessment,
             title: 'Internal Marks Management',
-            subtitle: 'Teachers can manage and publish internal assignment, test, and attendance marks for their subjects.',
+            subtitle:
+            'Manage assignments, tests and attendance marks — publish when ready.',
           ),
           const _FeatureTile(
             icon: Icons.calendar_today_outlined,
             title: 'Dynamic Timetables',
-            subtitle: 'Role-specific timetables that are always up-to-date for students and teachers, with offline access.',
+            subtitle:
+            'Updated timetables for students & teachers with offline caching.',
           ),
           const _FeatureTile(
             icon: Icons.notifications_active_outlined,
             title: 'Instant Notifications',
-            subtitle: 'Receive real-time alerts for timetable changes and query updates.',
+            subtitle:
+            'Real-time alerts for query updates, timetable changes and attendance warnings.',
           ),
           const _FeatureTile(
             icon: Icons.contact_mail_outlined,
             title: 'Campus Directories',
-            subtitle: 'Access directories for all students and teachers, including teacher qualifications.',
+            subtitle:
+            'View students and teachers with qualification details.',
           ),
 
           const Divider(height: 32),
 
-          Text("What's New (v1.1.0)", style: headingStyle),
+          Text("What's New (v$appVersion)", style: headingStyle),
           const SizedBox(height: 12),
+
           const _FeatureTile(
             icon: Icons.assessment_outlined,
             title: 'Internal Marks',
-            subtitle: 'Teachers can now grade and publish internal marks. Students can view their published grades.',
+            subtitle:
+            'Teachers can now grade & publish. Students see their published marks.',
           ),
           const _FeatureTile(
             icon: Icons.school_outlined,
             title: 'Teacher Qualifications',
-            subtitle: 'Teachers can add their qualifications to their profile, which are visible in the new Teacher Directory.',
+            subtitle:
+            'Teachers can now display qualifications in their directory profile.',
           ),
 
           const Divider(height: 32),
 
           Text('Technology & Credits', style: headingStyle),
           const SizedBox(height: 12),
+
           const _FeatureTile(
             icon: Icons.code,
             title: 'Flutter & Dart',
-            subtitle: 'Built with the Flutter framework for a cross-platform native experience.',
+            subtitle:
+            'Crafted with Flutter for a high-performance cross-platform experience.',
           ),
           const _FeatureTile(
             icon: Icons.local_fire_department_outlined,
             title: 'Firebase',
-            subtitle: 'Powered by Firebase for Authentication, Firestore, and Storage (for future use).',
+            subtitle:
+            'Authentication, Firestore database, notifications — all securely powered by Firebase.',
           ),
           const _FeatureTile(
             icon: Icons.storage,
             title: 'Riverpod',
-            subtitle: 'State management handled cleanly and efficiently using Riverpod.',
+            subtitle:
+            'Reliable and simple state management using Riverpod.',
           ),
 
           const Divider(height: 32),
@@ -102,20 +125,20 @@ class AboutPage extends ConsumerWidget {
           Text('Disclaimer', style: headingStyle),
           const SizedBox(height: 6),
           Text(
-            'This application is provided as-is. All data is stored securely in Firebase Cloud Firestore and is protected by security rules.',
-            style: Theme.of(context).textTheme.bodySmall,
+            'This app is provided as-is. All user data is stored securely in Firebase Firestore and governed by strict security rules.',
+            style: theme.textTheme.bodySmall,
           ),
+
           const SizedBox(height: 24),
+
           Center(
             child: Text(
-              'Version 1.1.0',
-              style: Theme.of(context).textTheme.bodySmall,
+              'Version $appVersion',
+              style: theme.textTheme.bodySmall,
             ),
           ),
           const SizedBox(height: 6),
-          const Center(
-            child: Text('© 2025 CampusTrack'),
-          ),
+          const Center(child: Text('© 2025 CampusTrack')),
         ],
       ),
     );
@@ -126,13 +149,20 @@ class _FeatureTile extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
-  const _FeatureTile({required this.icon, required this.title, required this.subtitle});
+
+  const _FeatureTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+
     return ListTile(
-      contentPadding: const EdgeInsets.only(bottom: 8),
-      leading: Icon(icon, size: 28, color: Theme.of(context).colorScheme.primary),
+      minLeadingWidth: 40,
+      leading: Icon(icon, size: 28, color: primary),
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
       subtitle: Text(subtitle),
     );

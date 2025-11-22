@@ -1,43 +1,68 @@
 // lib/features/common/widgets/logout_button.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import '../../../main.dart';
 
 class LogoutButton extends ConsumerWidget {
   final bool confirm;
-  const LogoutButton({super.key, this.confirm = true});
+  final Color? color;
+
+  const LogoutButton({
+    super.key,
+    this.confirm = true,
+    this.color,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return IconButton(
       tooltip: 'Logout',
-      icon: const Icon(Icons.logout),
+      icon: Icon(
+        Icons.logout,
+        // Use provided color, or default to error color (red)
+        color: color ?? Theme.of(context).colorScheme.error,
+      ),
       onPressed: () async {
-        bool proceed = true;
+        bool shouldLogout = true;
+
         if (confirm) {
-          proceed = await showDialog<bool>(
+          shouldLogout = await showDialog<bool>(
             context: context,
-            builder: (_) => AlertDialog(
-              title: const Text('Logout'),
-              content: const Text('Are you sure you want to logout?'),
+            builder: (ctx) => AlertDialog(
+              title: const Text('Confirm Logout'),
+              content: const Text('Are you sure you want to log out?'),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Logout')),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Logout'),
+                ),
               ],
             ),
           ) ??
               false;
         }
-        if (!proceed) return;
 
-        // Stop Firestore notification sync
-        ref.read(notifSyncProvider).stop();
+        if (!shouldLogout) return;
 
-        await ref.read(authRepoProvider).logout();
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Logged out')));
-        context.go('/login');
+        try {
+          // Logout triggers auth state change handler globally,
+          // which performs navigation, session clearing, and notification sync stop.
+          await ref.read(authRepoProvider).logout();
+        } catch (e) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Error logging out')),
+            );
+          }
+        }
       },
     );
   }

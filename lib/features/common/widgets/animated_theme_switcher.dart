@@ -8,19 +8,28 @@ class AnimatedThemeSwitcher extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final themeMode = ref.watch(themeProvider);
-    final isDark = themeMode == ThemeMode.dark;
+    // Watch the themeProvider so widget rebuilds on theme change
+    ref.watch(themeProvider);
+
+    // Determine actual brightness from ThemeData to respect system mode
+    final brightness = Theme.of(context).brightness;
+    final isDark = brightness == Brightness.dark;
+
+    final notifier = ref.read(themeProvider.notifier);
 
     return IconButton(
-      tooltip: 'Toggle ${isDark ? 'Light' : 'Dark'} Mode',
+      tooltip: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode',
       onPressed: () {
-        ref.read(themeProvider.notifier).toggleTheme(!isDark);
+        if (isDark) {
+          notifier.setTheme(ThemeMode.light);
+        } else {
+          notifier.setTheme(ThemeMode.dark);
+        }
       },
       icon: AnimatedSwitcher(
         duration: const Duration(milliseconds: 400),
         transitionBuilder: (child, animation) {
-          // Add a rotation and scale animation
-          final rotateAnim = Tween<double>(begin: 0.5, end: 1.0).animate(animation);
+          final rotateAnim = Tween<double>(begin: 0.75, end: 1.0).animate(animation);
           final scaleAnim = Tween<double>(begin: 0.5, end: 1.0).animate(animation);
           return RotationTransition(
             turns: rotateAnim,
@@ -31,12 +40,10 @@ class AnimatedThemeSwitcher extends ConsumerWidget {
           );
         },
         child: isDark
-        // The Moon icon for dark mode
             ? const Icon(
           Icons.dark_mode_outlined,
           key: ValueKey('moon'),
         )
-        // The Sun icon for light mode
             : const Icon(
           Icons.light_mode_outlined,
           key: ValueKey('sun'),

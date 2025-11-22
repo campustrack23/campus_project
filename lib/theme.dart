@@ -3,55 +3,67 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 ThemeData lightTheme() {
-  const bg = Color(0xFFCBD2F0);
-  const card = Color(0xFF2D232C); // This is the dark card for grid items
+  const bg = Color(0xFFCBD2F0); // lavender bg
+  const darkAccent = Color(0xFF2D232C); // deep accent for buttons
   const fg = Colors.black87;
-  const surfaceContrast = Colors.white; // For header cards
+  const cardWhite = Colors.white;
 
   final base = ThemeData(
     useMaterial3: true,
     brightness: Brightness.light,
     scaffoldBackgroundColor: bg,
     colorScheme: ColorScheme.fromSeed(
-      seedColor: card,
+      seedColor: darkAccent,
       brightness: Brightness.light,
     ).copyWith(
       surface: bg,
-      primary: card,
+      primary: darkAccent,
       onPrimary: Colors.white,
-      // **NEW**: For special cards that need to contrast with the background
-      surfaceContainerHighest: surfaceContrast,
+      surfaceContainerHighest: cardWhite,
       onSurfaceVariant: fg,
     ),
   );
 
   return base.copyWith(
-    textTheme: GoogleFonts.interTextTheme(base.textTheme).apply(bodyColor: fg, displayColor: fg),
+    textTheme: GoogleFonts.interTextTheme(base.textTheme).apply(
+      bodyColor: fg,
+      displayColor: fg,
+    ),
     appBarTheme: const AppBarTheme(
       centerTitle: true,
       elevation: 0,
       backgroundColor: bg,
       foregroundColor: fg,
+      iconTheme: IconThemeData(color: fg),
     ),
-    cardTheme: CardThemeData(
-      color: card, // Default card color is dark
+    cardTheme: const CardThemeData(
+      color: cardWhite,
       elevation: 1.2,
-      margin: const EdgeInsets.all(12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      margin: EdgeInsets.all(12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(20))),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: Colors.white,
+      fillColor: const Color(0xFFF5F6FA),
       hintStyle: TextStyle(color: Colors.grey.shade600),
+      labelStyle: TextStyle(color: Colors.grey.shade700),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: darkAccent, width: 1.5),
       ),
       contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        backgroundColor: card,
+        backgroundColor: darkAccent,
         foregroundColor: Colors.white,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -60,7 +72,7 @@ ThemeData lightTheme() {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: card,
+        backgroundColor: darkAccent,
         foregroundColor: Colors.white,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -73,6 +85,7 @@ ThemeData lightTheme() {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     ),
+    iconTheme: const IconThemeData(color: fg),
     listTileTheme: const ListTileThemeData(
       iconColor: Colors.black54,
       textColor: fg,
@@ -80,13 +93,12 @@ ThemeData lightTheme() {
   );
 }
 
-// **CORRECTED**: A full-featured dark theme with proper contrasts
 ThemeData darkTheme() {
   const bg = Color(0xFF1C1C22);
-  const card = Color(0xFF3A3A4A); // For grid items
+  const cardColor = Color(0xFF3A3A4A);
   const primary = Color(0xFF8A9CFF);
   const fg = Colors.white;
-  const surfaceContrast = Color(0xFF2D2D39); // For header cards
+  const inputFill = Color(0xFF2D2D39);
 
   final base = ThemeData(
     useMaterial3: true,
@@ -99,33 +111,42 @@ ThemeData darkTheme() {
       surface: bg,
       primary: primary,
       onPrimary: Colors.black,
-      // **NEW**: For special cards that need to contrast with the background
-      surfaceContainerHighest: surfaceContrast,
+      surfaceContainerHighest: cardColor,
       onSurfaceVariant: fg,
+      secondary: primary,
     ),
   );
 
   return base.copyWith(
-    textTheme: GoogleFonts.interTextTheme(base.textTheme).apply(bodyColor: fg, displayColor: fg),
+    textTheme: GoogleFonts.interTextTheme(base.textTheme).apply(
+      bodyColor: fg,
+      displayColor: fg,
+    ),
     appBarTheme: const AppBarTheme(
       centerTitle: true,
       elevation: 0,
       backgroundColor: bg,
       foregroundColor: fg,
+      iconTheme: IconThemeData(color: fg),
     ),
-    cardTheme: CardThemeData(
-      color: card, // Default card color
+    cardTheme: const CardThemeData(
+      color: cardColor,
       elevation: 1.2,
-      margin: const EdgeInsets.all(12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      margin: EdgeInsets.all(12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(20))),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: surfaceContrast, // **FIXED**: Dark fill for text fields
+      fillColor: inputFill,
       hintStyle: TextStyle(color: Colors.grey.shade400),
+      labelStyle: const TextStyle(color: Colors.white70),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: primary, width: 1.5),
       ),
       contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
     ),
@@ -153,8 +174,9 @@ ThemeData darkTheme() {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     ),
+    iconTheme: const IconThemeData(color: Colors.white70),
     listTileTheme: const ListTileThemeData(
-      iconColor: Colors.white54,
+      iconColor: Colors.white70,
       textColor: fg,
     ),
   );

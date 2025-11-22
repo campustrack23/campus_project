@@ -7,29 +7,33 @@ import '../core/models/subject.dart';
 class TimetableRepository {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
+  // No LocalStorage needed anymore; Firestore handles caching automatically.
+  TimetableRepository();
+
   CollectionReference<TimetableEntry> get _entriesRef =>
       _db.collection('timetable').withConverter<TimetableEntry>(
-        fromFirestore: (snapshot, _) => TimetableEntry.fromMap(snapshot.data()!),
+        fromFirestore: (snap, _) {
+          final raw = snap.data();
+          final map = raw == null ? null : Map<String, dynamic>.from(raw);
+          return TimetableEntry.fromMap(snap.id, map);
+        },
         toFirestore: (entry, _) => entry.toMap(),
       );
 
   CollectionReference<Subject> get _subjectsRef =>
       _db.collection('subjects').withConverter<Subject>(
-        fromFirestore: (snapshot, _) => Subject.fromMap(snapshot.data()!),
-        toFirestore: (subject, _) => subject.toMap(),
+        fromFirestore: (snap, _) {
+          final raw = snap.data();
+          final map = raw == null ? null : Map<String, dynamic>.from(raw);
+          return Subject.fromMap(snap.id, map);
+        },
+        toFirestore: (subj, _) => subj.toMap(),
       );
 
-  Future<List<TimetableEntry>> allEntries() async {
-    final snapshot = await _entriesRef.get();
-    return snapshot.docs.map((doc) => doc.data()).toList();
-  }
-
-  Future<List<Subject>> allSubjects() async {
-    final snapshot = await _subjectsRef.get();
-    return snapshot.docs.map((doc) => doc.data()).toList();
-  }
+  // --- READ METHODS (Auto-Cached) ---
 
   Future<Subject?> subjectById(String id) async {
+    // This automatically checks local cache first if offline
     final doc = await _subjectsRef.doc(id).get();
     return doc.data();
   }
@@ -39,23 +43,32 @@ class TimetableRepository {
     return doc.data();
   }
 
-  // --- FIX: Simplified logic to be more accurate ---
+  Future<List<TimetableEntry>> allEntries() async {
+    final snapshot = await _entriesRef.get();
+    return snapshot.docs.map((d) => d.data()).toList();
+  }
+
+  Future<List<Subject>> allSubjects() async {
+    // Using default source: checks server, falls back to cache if offline
+    final snapshot = await _subjectsRef.orderBy('code').get();
+    return snapshot.docs.map((d) => d.data()).toList();
+  }
+
   Future<List<TimetableEntry>> forTeacher(String teacherId) async {
-    // This single query is all that's needed.
-    // It finds all timetable entries where the teacher's ID
-    // is in the 'teacherIds' array.
-    final entriesBySlot = await _entriesRef
+    final snapshot = await _entriesRef
         .where('teacherIds', arrayContains: teacherId)
         .get();
-
-    return entriesBySlot.docs.map((d) => d.data()).toList();
+    return snapshot.docs.map((d) => d.data()).toList();
   }
-  // --- End of Fix ---
 
   Future<List<TimetableEntry>> forSection(String section) async {
-    final snapshot = await _entriesRef.where('section', isEqualTo: section).get();
-    return snapshot.docs.map((doc) => doc.data()).toList();
+    final snapshot = await _entriesRef
+        .where('section', isEqualTo: section)
+        .get();
+    return snapshot.docs.map((d) => d.data()).toList();
   }
+
+  // --- WRITE METHODS ---
 
   Future<void> addOrUpdate(TimetableEntry entry) async {
     await _entriesRef.doc(entry.id).set(entry, SetOptions(merge: true));
@@ -65,17 +78,26 @@ class TimetableRepository {
     await _entriesRef.doc(id).delete();
   }
 
-  // This helper can remain mostly synchronous as it's for UI prep
+  Future<Subject> addOrUpdateSubject(Subject subject) async {
+    await _subjectsRef.doc(subject.id).set(subject, SetOptions(merge: true));
+    return subject;
+  }
+
+  Future<void> deleteSubject(String id) async {
+    await _subjectsRef.doc(id).delete();
+  }
+
   Future<TimetableEntry> newBlankEntry() async {
-    final subs = await allSubjects();
+    final subjects = await allSubjects();
     return TimetableEntry(
       id: const Uuid().v4(),
-      subjectId: subs.isNotEmpty ? subs.first.id : '',
+      subjectId: subjects.isNotEmpty ? subjects.first.id : '',
       dayOfWeek: 'Mon',
       startTime: '08:30',
       endTime: '09:30',
       room: '301',
       section: 'IV-HE',
+      teacherIds: subjects.isNotEmpty ? [subjects.first.teacherId] : [],
     );
   }
 }

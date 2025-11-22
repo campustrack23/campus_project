@@ -1,11 +1,13 @@
+// lib/features/notifications/notification_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../common/widgets/profile_avatar_action.dart';
 import '../common/widgets/app_drawer.dart';
-import '../../core/models/user.dart';
+import '../../core/models/notification.dart';
 import '../../main.dart';
+import '../../data/notification_repository.dart';
 
 class NotificationsPage extends ConsumerStatefulWidget {
   const NotificationsPage({super.key});
@@ -15,79 +17,164 @@ class NotificationsPage extends ConsumerStatefulWidget {
 }
 
 class _NotificationsPageState extends ConsumerState<NotificationsPage> {
-  Future<void> _refresh() async => setState(() {});
-
   @override
   Widget build(BuildContext context) {
-    final fmt = DateFormat('MMM d, h:mm a');
+    final authState = ref.watch(authStateProvider);
 
-    return FutureBuilder<UserAccount?>(
-      future: ref.read(authRepoProvider).currentUser(),
-      builder: (context, snap) {
-        if (!snap.hasData) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    return authState.when(
+      loading: () =>
+      const Scaffold(body: Center(child: CircularProgressIndicator())),
+      error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
+      data: (user) {
+        if (user == null) {
+          return const Scaffold(body: Center(child: Text('Please login')));
         }
-        final me = snap.data!;
-        final repo = ref.read(notifRepoProvider);
-        final items = repo.forUser(me.id);
-        final hasUnread = repo.unreadForUser(me.id).isNotEmpty;
+
+        final repo = ref.watch(notifRepoProvider);
+        final items = repo.forUser(user.id);
+        final hasUnread = items.any((n) => !n.read);
+        final fmt = DateFormat('MMM d, h:mm a');
 
         return Scaffold(
           appBar: AppBar(
-            leading: Builder(
-              builder: (ctx) => IconButton(
-                tooltip: 'Menu',
-                icon: const Icon(Icons.menu),
-                onPressed: () => Scaffold.of(ctx).openDrawer(),
-              ),
-            ),
             title: const Text('Notifications'),
             actions: [
-              const ProfileAvatarAction(),
+              if (items.isNotEmpty)
+                IconButton(
+                  tooltip: 'Clear All',
+                  icon: const Icon(Icons.delete_sweep_outlined),
+                  onPressed: () => _confirmClearAll(context, repo, user.id),
+                ),
               IconButton(
-                icon: const Icon(Icons.mark_email_read_outlined),
+                icon: Icon(
+                  hasUnread
+                      ? Icons.mark_email_read
+                      : Icons.mark_email_read_outlined,
+                  color: hasUnread
+                      ? Theme.of(context).colorScheme.primary
+                      : null,
+                ),
                 tooltip: 'Mark all read',
                 onPressed: hasUnread
                     ? () async {
-                  await repo.markAllRead(me.id);
+                  final messenger = ScaffoldMessenger.of(context);
+
+                  await repo.markAllRead(user.id);
+
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Marked all as read')),
+
+                  messenger.showSnackBar(
+                    const SnackBar(
+                        content: Text('Marked all as read')),
                   );
+
                   setState(() {});
                 }
                     : null,
               ),
+              const SizedBox(width: 8),
+              const ProfileAvatarAction(),
+              const SizedBox(width: 12),
             ],
           ),
           drawer: const AppDrawer(),
           body: items.isEmpty
-              ? const Center(child: Text('No notifications'))
+              ? Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.notifications_off_outlined,
+                    size: 64,
+                    color: Colors.grey.withValues(alpha: 0.4)), // FIXED
+                const SizedBox(height: 16),
+                Text('No notifications',
+                    style:
+                    TextStyle(color: Colors.grey.withValues(alpha: 0.6))),
+              ],
+            ),
+          )
               : RefreshIndicator(
-            onRefresh: _refresh,
+            onRefresh: () async {
+              setState(() {});
+            },
             child: ListView.separated(
               physics: const AlwaysScrollableScrollPhysics(),
               itemCount: items.length,
-              separatorBuilder: (_, __) => const Divider(height: 0),
+              separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (_, i) {
                 final n = items[i];
-                return ListTile(
-                  leading: Icon(
-                    n.read ? Icons.notifications_none : Icons.notifications_active,
-                    color: n.read ? Colors.grey : Colors.blueAccent,
+                return Dismissible(
+                  key: Key(n.id),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    color: Colors.red,
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 20),
+                    child: const Icon(Icons.delete, color: Colors.white),
                   ),
-                  title: Text(n.title),
-                  subtitle: Text(n.body),
-                  trailing: Text(
-                    fmt.format(n.createdAt.toLocal()),
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  onTap: () async {
-                    if (!n.read) {
-                      await repo.markRead(n.id);
-                      if (mounted) setState(() {});
-                    }
+                  onDismissed: (_) async {
+                    await repo.delete(n.id);
+                    if (mounted) setState(() {});
                   },
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    tileColor: n.read
+                        ? null
+                        : Theme.of(context)
+                        .colorScheme
+                        .primary
+                        .withValues(alpha: 0.05), // FIXED
+                    leading: CircleAvatar(
+                      backgroundColor: n.read
+                          ? Colors.grey.withValues(alpha: 0.15)
+                          : Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.15), // FIXED
+                      child: Icon(
+                        _getIconForType(n.type),
+                        color: n.read
+                            ? Colors.grey
+                            : Theme.of(context)
+                            .colorScheme
+                            .primary,
+                        size: 20,
+                      ),
+                    ),
+                    title: Text(
+                      n.title,
+                      style: TextStyle(
+                        fontWeight: n.read
+                            ? FontWeight.normal
+                            : FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 4),
+                        Text(n.body,
+                            style: const TextStyle(height: 1.3)),
+                        const SizedBox(height: 6),
+                        Text(
+                          fmt.format(n.createdAt.toLocal()),
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(fontSize: 11),
+                        ),
+                      ],
+                    ),
+                    onTap: () async {
+                      if (!n.read) {
+                        await repo.markRead(n.id);
+                        if (mounted) setState(() {});
+                      }
+                    },
+                  ),
                 );
               },
             ),
@@ -95,5 +182,56 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
         );
       },
     );
+  }
+
+  Future<void> _confirmClearAll(
+      BuildContext context, NotificationRepository repo, String userId) async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear All'),
+        content: const Text(
+            'Delete all notifications? This cannot be undone.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete All'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await repo.clearForUser(userId);
+
+      if (!mounted) return;
+
+      messenger.showSnackBar(
+        const SnackBar(content: Text('All notifications cleared')),
+      );
+
+      setState(() {});
+    }
+  }
+
+  IconData _getIconForType(NotificationType type) {
+    switch (type) {
+      case NotificationType.classChange:
+        return Icons.schedule;
+      case NotificationType.lowAttendance:
+        return Icons.warning_amber_rounded;
+      case NotificationType.queryUpdate:
+        return Icons.question_answer_outlined;
+      case NotificationType.remarkSaved:
+        return Icons.rate_review_outlined;
+      case NotificationType.general:
+        return Icons.notifications; // DEFAULT REMOVED
+    }
   }
 }

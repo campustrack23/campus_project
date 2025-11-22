@@ -7,25 +7,26 @@ class InternalMarksRepository {
 
   CollectionReference<InternalMarks> get _marksRef =>
       _db.collection('internal_marks').withConverter<InternalMarks>(
-        fromFirestore: (snapshot, _) => InternalMarks.fromMap(snapshot.data()!),
+        fromFirestore: (snapshot, _) =>
+            InternalMarks.fromDoc(snapshot),  // safer
         toFirestore: (marks, _) => marks.toMap(),
       );
 
-  // --- FIX: Added a new method to get ALL marks for the admin page ---
+  // ---------------- READ METHODS ----------------
+
   Future<List<InternalMarks>> getAllMarks() async {
     final snapshot = await _marksRef.get();
     return snapshot.docs.map((doc) => doc.data()).toList();
   }
-  // --- End of Fix ---
 
-  // Get all marks for a specific subject (for teachers)
   Future<List<InternalMarks>> getMarksForSubject(String subjectId) async {
-    final snapshot = await _marksRef.where('subjectId', isEqualTo: subjectId).get();
+    final snapshot =
+    await _marksRef.where('subjectId', isEqualTo: subjectId).get();
     return snapshot.docs.map((doc) => doc.data()).toList();
   }
 
-  // Get all published marks for a specific student
-  Future<List<InternalMarks>> getVisibleMarksForStudent(String studentId) async {
+  Future<List<InternalMarks>> getVisibleMarksForStudent(
+      String studentId) async {
     final snapshot = await _marksRef
         .where('studentId', isEqualTo: studentId)
         .where('isVisibleToStudent', isEqualTo: true)
@@ -33,21 +34,66 @@ class InternalMarksRepository {
     return snapshot.docs.map((doc) => doc.data()).toList();
   }
 
-  // Update or create a single student's marks
-  Future<void> updateMarks(InternalMarks marks) async {
-    final docId = '${marks.subjectId}_${marks.studentId}';
-    await _marksRef.doc(docId).set(marks, SetOptions(merge: true));
+  Future<List<InternalMarks>> getAllMarksForStudent(String studentId) async {
+    final snapshot =
+    await _marksRef.where('studentId', isEqualTo: studentId).get();
+    return snapshot.docs.map((doc) => doc.data()).toList();
   }
 
-  // Publish or unpublish all marks for a subject
-  Future<void> publishMarksForSubject(String subjectId, bool isVisible) async {
-    final snapshot = await _marksRef.where('subjectId', isEqualTo: subjectId).get();
-    if (snapshot.docs.isEmpty) return; // No marks to publish
+  Future<List<InternalMarks>> getMarksForTeacher(String teacherId) async {
+    final snapshot =
+    await _marksRef.where('teacherId', isEqualTo: teacherId).get();
+    return snapshot.docs.map((doc) => doc.data()).toList();
+  }
 
-    final batch = _db.batch();
-    for (final doc in snapshot.docs) {
-      batch.update(doc.reference, {'isVisibleToStudent': isVisible});
+  // ---------------- WRITE METHODS ----------------
+
+  Future<void> updateMarks(InternalMarks marks) async {
+    final updated = recalcTotals(marks);
+    final docId = '${updated.subjectId}_${updated.studentId}'; // FIXED
+
+    await _marksRef.doc(docId).set(
+      updated,
+      SetOptions(merge: true),
+    );
+  }
+
+  Future<void> publishMarksForSubject(
+      String subjectId, bool isVisible) async {
+    final snapshot =
+    await _marksRef.where('subjectId', isEqualTo: subjectId).get();
+    if (snapshot.docs.isEmpty) return;
+
+    const int batchLimit = 500;
+    final docs = snapshot.docs;
+
+    for (var i = 0; i < docs.length; i += batchLimit) {
+      final batch = _db.batch();
+      final end =
+      (i + batchLimit < docs.length) ? i + batchLimit : docs.length;
+      final chunk = docs.sublist(i, end);
+
+      for (final doc in chunk) {
+        batch.update(doc.reference, {'isVisibleToStudent': isVisible});
+      }
+
+      await batch.commit();
     }
-    await batch.commit();
+  }
+
+  Future<void> adminOverride(InternalMarks marks) async {
+    await updateMarks(marks);
+  }
+
+  Future<void> deleteMarks(String subjectId, String studentId) async {
+    final docId = '${subjectId}_$studentId';
+    await _marksRef.doc(docId).delete();
+  }
+
+  // ---------------- UTILITIES ----------------
+
+  /// FIXED: no more missing named parameter error
+  InternalMarks recalcTotals(InternalMarks record) {
+    return record.recalculateTotal();
   }
 }

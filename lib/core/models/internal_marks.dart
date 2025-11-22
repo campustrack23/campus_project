@@ -2,20 +2,20 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class InternalMarks {
-  final String id; // doc ID, combination of subjectId_studentId
+  final String id; // doc ID: subjectId_studentId
   final String subjectId;
   final String studentId;
   final String teacherId;
 
-  final double assignmentMarks; // out of 12
-  final double testMarks;       // out of 12
-  final double attendanceMarks; // out of 6 (auto-calculated)
-  final double totalMarks;      // out of 30
+  final double assignmentMarks; // Max 12
+  final double testMarks;       // Max 12
+  final double attendanceMarks; // Max 6
+  final double totalMarks;      // Max 30
 
   final bool isVisibleToStudent;
   final DateTime updatedAt;
 
-  InternalMarks({
+  const InternalMarks({
     required this.id,
     required this.subjectId,
     required this.studentId,
@@ -28,7 +28,7 @@ class InternalMarks {
     required this.updatedAt,
   });
 
-  // Helper to create a new, empty record
+  /// Helper to create a new, empty record
   factory InternalMarks.empty({
     required String subjectId,
     required String studentId,
@@ -44,34 +44,49 @@ class InternalMarks {
   }
 
   InternalMarks copyWith({
+    String? teacherId,
     double? assignmentMarks,
     double? testMarks,
     double? attendanceMarks,
-    double? totalMarks,
+    // totalMarks is usually auto-calculated, so omitted from copyWith
     bool? isVisibleToStudent,
     DateTime? updatedAt,
-    // --- FIX: Added missing teacherId parameter ---
-    String? teacherId,
   }) {
     return InternalMarks(
       id: id,
       subjectId: subjectId,
       studentId: studentId,
-      // --- FIX: Use new teacherId if provided, otherwise keep old one ---
       teacherId: teacherId ?? this.teacherId,
       assignmentMarks: assignmentMarks ?? this.assignmentMarks,
       testMarks: testMarks ?? this.testMarks,
       attendanceMarks: attendanceMarks ?? this.attendanceMarks,
-      totalMarks: totalMarks ?? this.totalMarks,
+      totalMarks: (assignmentMarks ?? this.assignmentMarks) +
+          (testMarks ?? this.testMarks) +
+          (attendanceMarks ?? this.attendanceMarks),
       isVisibleToStudent: isVisibleToStudent ?? this.isVisibleToStudent,
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
-  // --- End of Fix ---
+
+  /// Recalculate total marks explicitly, useful after batch updates
+  InternalMarks recalculateTotal() {
+    final newTotal = assignmentMarks + testMarks + attendanceMarks;
+    return InternalMarks(
+      id: id,
+      subjectId: subjectId,
+      studentId: studentId,
+      teacherId: teacherId,
+      assignmentMarks: assignmentMarks,
+      testMarks: testMarks,
+      attendanceMarks: attendanceMarks,
+      totalMarks: newTotal,
+      isVisibleToStudent: isVisibleToStudent,
+      updatedAt: DateTime.now(),
+    );
+  }
 
   Map<String, dynamic> toMap() {
     return {
-      'id': id,
       'subjectId': subjectId,
       'studentId': studentId,
       'teacherId': teacherId,
@@ -86,16 +101,55 @@ class InternalMarks {
 
   factory InternalMarks.fromMap(Map<String, dynamic> map) {
     return InternalMarks(
-      id: map['id'] as String,
-      subjectId: map['subjectId'] as String,
-      studentId: map['studentId'] as String,
-      teacherId: map['teacherId'] as String,
+      id: map['id'] ?? '',
+      subjectId: map['subjectId'] ?? '',
+      studentId: map['studentId'] ?? '',
+      teacherId: map['teacherId'] ?? '',
       assignmentMarks: (map['assignmentMarks'] as num?)?.toDouble() ?? 0.0,
       testMarks: (map['testMarks'] as num?)?.toDouble() ?? 0.0,
       attendanceMarks: (map['attendanceMarks'] as num?)?.toDouble() ?? 0.0,
-      totalMarks: (map['totalMarks'] as num?)?.toDouble() ?? 0.0,
+      totalMarks: (map['totalMarks'] as num?)?.toDouble() ??
+          ((map['assignmentMarks'] as num?)?.toDouble() ?? 0.0) +
+              ((map['testMarks'] as num?)?.toDouble() ?? 0.0) +
+              ((map['attendanceMarks'] as num?)?.toDouble() ?? 0.0),
       isVisibleToStudent: map['isVisibleToStudent'] as bool? ?? false,
       updatedAt: (map['updatedAt'] as Timestamp).toDate(),
     );
+  }
+
+  factory InternalMarks.fromDoc(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>? ?? {};
+    return InternalMarks.fromMap({...data, 'id': doc.id});
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+
+    return other is InternalMarks &&
+        other.id == id &&
+        other.subjectId == subjectId &&
+        other.studentId == studentId &&
+        other.teacherId == teacherId &&
+        other.assignmentMarks == assignmentMarks &&
+        other.testMarks == testMarks &&
+        other.attendanceMarks == attendanceMarks &&
+        other.totalMarks == totalMarks &&
+        other.isVisibleToStudent == isVisibleToStudent &&
+        other.updatedAt == updatedAt;
+  }
+
+  @override
+  int get hashCode {
+    return id.hashCode ^
+    subjectId.hashCode ^
+    studentId.hashCode ^
+    teacherId.hashCode ^
+    assignmentMarks.hashCode ^
+    testMarks.hashCode ^
+    attendanceMarks.hashCode ^
+    totalMarks.hashCode ^
+    isVisibleToStudent.hashCode ^
+    updatedAt.hashCode;
   }
 }

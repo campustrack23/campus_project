@@ -3,20 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../common/widgets/profile_avatar_action.dart';
-// --- FIX: Import the new error widget ---
 import '../common/widgets/async_error_widget.dart';
 import '../../core/models/attendance.dart';
 import '../../core/models/user.dart';
-import '../../core/models/role.dart';
 import '../../core/models/subject.dart';
 import '../../core/models/attendance_session.dart';
 import '../../main.dart';
 import '../../core/utils/time_formatter.dart';
 
-// Provider to fetch all data for the review page
 final reviewProvider = FutureProvider.autoDispose.family((ref, String sessionId) async {
   final authRepo = ref.watch(authRepoProvider);
   final ttRepo = ref.watch(timetableRepoProvider);
@@ -30,6 +26,8 @@ final reviewProvider = FutureProvider.autoDispose.family((ref, String sessionId)
 
   final subject = await ttRepo.subjectById(session.subjectId);
   final students = await authRepo.studentsInSection(session.section);
+
+  // Pass the session date. The Repo will handle the Timezone normalization.
   final records = await attRepo.forSubjectAndDate(session.subjectId, session.createdAt);
 
   return {
@@ -40,7 +38,6 @@ final reviewProvider = FutureProvider.autoDispose.family((ref, String sessionId)
     'records': records,
   };
 });
-
 
 class ReviewAttendancePage extends ConsumerStatefulWidget {
   final String? sessionId;
@@ -64,8 +61,7 @@ class _ReviewAttendancePageState extends ConsumerState<ReviewAttendancePage> {
   }
 
   void _initializeMarks(List<AttendanceRecord> records, List<UserAccount> students) {
-    if (_dataLoaded) return; // Only run once
-
+    if (_dataLoaded) return;
     final recordsMap = { for (var r in records) r.studentId : r.status };
     for (final s in students) {
       _marks[s.id] = recordsMap[s.id] ?? AttendanceStatus.absent;
@@ -88,14 +84,11 @@ class _ReviewAttendancePageState extends ConsumerState<ReviewAttendancePage> {
       ),
       body: asyncData.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        // --- FIX: Use the new error widget ---
         error: (err, stack) => AsyncErrorWidget(
           message: err.toString(),
           onRetry: () => ref.invalidate(reviewProvider(widget.sessionId!)),
         ),
-        // --- End of Fix ---
         data: (data) {
-          final me = data['me'] as UserAccount;
           final session = data['session'] as AttendanceSession;
           final subject = data['subject'] as Subject?;
           final students = data['students'] as List<UserAccount>;
@@ -103,10 +96,13 @@ class _ReviewAttendancePageState extends ConsumerState<ReviewAttendancePage> {
 
           _initializeMarks(records, students);
 
+          // FIX: Compare dates in Local Time to allow editing today
           final now = DateTime.now();
-          _isEditable = now.day == session.createdAt.day &&
-              now.month == session.createdAt.month &&
-              now.year == session.createdAt.year;
+          final sessionDateLocal = session.createdAt.toLocal();
+
+          _isEditable = now.year == sessionDateLocal.year &&
+              now.month == sessionDateLocal.month &&
+              now.day == sessionDateLocal.day;
 
           final q = _searchCtrl.text.trim().toLowerCase();
           final visible = students.where((s) {
@@ -210,6 +206,7 @@ class _ReviewAttendancePageState extends ConsumerState<ReviewAttendancePage> {
       await attendanceRepo.mark(
         subjectId: session.subjectId,
         studentId: mark.key,
+        // Pass session creation time; repo handles Local Midnight normalization
         date: session.createdAt,
         slot: session.slot,
         status: mark.value,

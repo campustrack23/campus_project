@@ -1,13 +1,13 @@
+// lib/core/seed/seed_data.dart
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 import '../models/user.dart';
 import '../models/role.dart';
 import '../models/subject.dart';
 import '../models/timetable_entry.dart';
-import '../services/local_storage.dart';
 
 class Seeder {
-  final LocalStorage store;
-  Seeder(this.store);
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   // Period times (I..IX)
   static const List<String> _times = [
@@ -17,13 +17,20 @@ class Seeder {
   String _start(int p) => _times[p].split('-').first;
   String _end(int p) => _times[p].split('-').last;
 
+  /// Checks if data exists, and if not, seeds it.
   Future<void> seedIfNeeded() async {
-    if (store.isSeeded) return;
+    // Check if users collection is empty
+    final userSnapshot = await _db.collection('users').limit(1).get();
+    if (userSnapshot.docs.isNotEmpty) {
+      // Already seeded
+      return;
+    }
 
     final now = DateTime.now();
     const id = Uuid();
+    final batch = _db.batch();
 
-    // Admin
+    // --- 1. USERS ---
     final admin = UserAccount(
       id: id.v4(),
       role: UserRole.admin,
@@ -47,7 +54,7 @@ class Seeder {
     final tSY     = _teacher(id, now, 'Ms. Sheetal Yadav',         'sy@college.edu',     '9999901109'); // SY
     final tSHS    = _teacher(id, now, 'Dr. Shivani Sital',         'shs@college.edu',    '9999901110'); // SHS
 
-    // IV-HE students (sample)
+    // IV-HE students
     final studentsIV = <UserAccount>[
       _stu(id, now, 'Akshay Kumar',        '6302', '22055558010', '9000000002', 4, 'IV-HE'),
       _stu(id, now, 'Amit Kumar',          '6304', '22055558009', '9000000004', 4, 'IV-HE'),
@@ -67,10 +74,14 @@ class Seeder {
       tShikha, tSS, tSA, tSN, tAJ, tSK, tRST, tHM, tVK, tSY, tSHS,
       ...studentsIV,
     ];
-    await store.writeList(LocalStorage.kUsers, users.map((e) => e.toMap()).toList());
 
-    // Subjects per section (I..III kept same as before)
-    final y1 = _YearKit(section: 'I-HE', id: id, owner: this);
+    // Batch add users
+    for (final u in users) {
+      batch.set(_db.collection('users').doc(u.id), u.toMap());
+    }
+
+    // --- 2. SUBJECTS ---
+    final y1 = _YearKit(section: 'I-HE', id: id);
     final subjPFP      = y1.subj('PFP',      'Programming Fundamentals (Python)', tSHS);
     final subjpfpLab  = y1.subj('PFP LAB',  'PFP Lab',                            tSHS);
     final subjSD       = y1.subj('SD',       'Semiconductor Devices',              tSN);
@@ -83,7 +94,7 @@ class Seeder {
     final subjVAC1     = y1.subj('VAC',      'Value Addition Course',              tShikha);
     final subjSEC1     = y1.subj('SEC',      'Skill Enhancement Course',           tShikha);
 
-    final y2 = _YearKit(section: 'II-HE', id: id, owner: this);
+    final y2 = _YearKit(section: 'II-HE', id: id);
     final subjEM       = y2.subj('EM',       'Engineering Mathematics',            tSK);
     final subjemLab   = y2.subj('EM LAB',   'EM Lab',                             tSA);
     final subjAE2      = y2.subj('AE-II',    'Analog Electronics - II',            tAJ);
@@ -95,7 +106,7 @@ class Seeder {
     y2.subj('GE TUT',   'GE Lab/Tutorial',                    tShikha);
     final subjSEC2     = y2.subj('SEC',      'Skill Enhancement Course',           tShikha);
 
-    final y3 = _YearKit(section: 'III-HE', id: id, owner: this);
+    final y3 = _YearKit(section: 'III-HE', id: id);
     final subjCN       = y3.subj('CN',       'Computer Networks',                   tVK);
     final subjcnLab   = y3.subj('CN LAB',   'CN Lab',                              tVK);
     final subjES       = y3.subj('ES',       'Embedded Systems',                    tSY);
@@ -107,8 +118,7 @@ class Seeder {
     final subjGE3      = y3.subj('GE',       'Generic Elective',                    tShikha);
     final subjSEC3     = y3.subj('SEC',      'Skill Enhancement Course',            tShikha);
 
-    // Year 4 (IV-HE) — adjusted per your latest request
-    final y4 = _YearKit(section: 'IV-HE', id: id, owner: this);
+    final y4 = _YearKit(section: 'IV-HE', id: id);
     final subjCMOS     = y4.subj('CMOS',     'CMOS Digital VLSI Design',            tShikha);
     final subjAML      = y4.subj('AML',      'Advanced Machine Learning',           tSHS);
     final subjAES      = y4.subj('AES',      'Advanced Embedded Systems',           tSY);
@@ -118,13 +128,16 @@ class Seeder {
     final subjaesLab  = y4.subj('AES LAB',  'AES Lab',                             tSY);
     final subjcsLab   = y4.subj('CS LAB',   'CS Lab',                              tRST);
 
-    // Save subjects
     final subjectsAll = [
       ...y1.subjects, ...y2.subjects, ...y3.subjects, ...y4.subjects,
     ];
-    await store.writeList(LocalStorage.kSubjects, subjectsAll.map((e) => e.toMap()).toList());
 
-    // Timetable builder
+    // Batch add subjects
+    for (final s in subjectsAll) {
+      batch.set(_db.collection('subjects').doc(s.id), s.toMap());
+    }
+
+    // --- 3. TIMETABLE ---
     final List<TimetableEntry> tt = [];
     void addBlock(String section, String day, int fromP, int toP, Subject subj, String room, List<String> teachers) {
       for (int p = fromP; p <= toP; p++) {
@@ -141,7 +154,7 @@ class Seeder {
       }
     }
 
-    // (I-HE) unchanged
+    // (I-HE)
     addBlock('I-HE','Mon',0,1, subjPFP,     '301', [tSHS.id]);
     addBlock('I-HE','Mon',2,3, subjpfpLab, 'NEL', [tSHS.id, tSN.id]);
     addBlock('I-HE','Mon',4,4, subjSD,      '301', [tSN.id]);
@@ -161,7 +174,7 @@ class Seeder {
     addBlock('I-HE','Fri',5,5, subjGE1,     'NR',  [tShikha.id]);
     addBlock('I-HE','Sat',6,8, subjSEC1,    'NR',  [tShikha.id]);
 
-    // (II-HE) unchanged
+    // (II-HE)
     addBlock('II-HE','Mon',0,0, subjEM,      '301', [tSK.id]);
     addBlock('II-HE','Mon',3,4, subjemLab,  'NR',  [tShikha.id, tSA.id]);
     addBlock('II-HE','Tue',1,2, subjae2Lab, 'NEL', [tAJ.id, tSA.id]);
@@ -179,7 +192,7 @@ class Seeder {
     addBlock('II-HE','Fri',4,5, subjGEAIML,  'NR',  [tHM.id]);
     addBlock('II-HE','Sat',6,8, subjSEC2,    'NR',  [tShikha.id]);
 
-    // (III-HE) unchanged
+    // (III-HE)
     addBlock('III-HE','Mon',0,3, subjGE3,     'NR',  [tShikha.id]);
     addBlock('III-HE','Mon',5,8, subjSEC3,    'NR',  [tShikha.id]);
     addBlock('III-HE','Tue',0,0, subjEMT,     '301', [tSA.id]);
@@ -195,36 +208,30 @@ class Seeder {
     addBlock('III-HE','Fri',4,5, subjES,      '301', [tSY.id]);
     addBlock('III-HE','Fri',6,6, subjVLSI,    '301', [tSK.id]);
 
-    // (IV-HE) adjusted
-    // Wednesday:
+    // (IV-HE)
     addBlock('IV-HE','Wed',0,1, subjcmosLab,'NEL', [tShikha.id, tSN.id]); // I–II
     addBlock('IV-HE','Wed',2,3, subjAML,     'NR',  [tSHS.id]);           // III–IV
-    addBlock('IV-HE','Wed',4,5, subjcsLab,  'NEL', [tRST.id, tSS.id]);    // V–VI (VII removed)
+    addBlock('IV-HE','Wed',4,5, subjcsLab,  'NEL', [tRST.id, tSS.id]);    // V–VI
 
-    // Thursday:
     addBlock('IV-HE','Thu',0,1, subjamlLab, 'NEL', [tSHS.id, tSA.id]);    // I–II
     addBlock('IV-HE','Thu',2,2, subjAML,     '301', [tSHS.id]);           // III
-    // AES at V removed (12:30)
-    addBlock('IV-HE','Thu',5,6, subjaesLab, 'NEL', [tSY.id, tAJ.id]);     // VI–VII (VIII removed)
+    addBlock('IV-HE','Thu',5,6, subjaesLab, 'NEL', [tSY.id, tAJ.id]);     // VI–VII
 
-    // Friday:
     addBlock('IV-HE','Fri',0,1, subjCMOS,    '301', [tShikha.id]);        // I–II
     addBlock('IV-HE','Fri',2,3, subjAES,     '301', [tSY.id]);            // III–IV
-    addBlock('IV-HE','Fri',6,6, subjCS,      '301', [tRST.id]);           // VII only (VIII removed)
+    addBlock('IV-HE','Fri',6,6, subjCS,      '301', [tRST.id]);           // VII
 
-    // Saturday:
     addBlock('IV-HE','Sat',0,0, subjCMOS,    '301', [tShikha.id]);        // I
     addBlock('IV-HE','Sat',2,2, subjCS,      '301', [tHM.id]);            // III
     addBlock('IV-HE','Sat',3,3, subjCS,      '301', [tRST.id]);           // IV
 
-    // Save timetable
-    await store.writeList(LocalStorage.kTimetable, tt.map((e) => e.toMap()).toList());
+    // Batch add Timetable
+    for (final t in tt) {
+      batch.set(_db.collection('timetable').doc(t.id), t.toMap());
+    }
 
-    // Empty datasets
-    await store.writeList(LocalStorage.kAttendance, []);
-    await store.writeList(LocalStorage.kQueries, []);
-    await store.writeList(LocalStorage.kRemarks, []);
-    await store.markSeeded();
+    // Commit everything
+    await batch.commit();
   }
 
   // Helpers
@@ -255,9 +262,8 @@ class Seeder {
 class _YearKit {
   final String section;
   final Uuid id;
-  final Seeder owner;
   final List<Subject> subjects = [];
-  _YearKit({required this.section, required this.id, required this.owner});
+  _YearKit({required this.section, required this.id});
 
   Subject subj(String code, String name, UserAccount leadTeacher) {
     final s = Subject(

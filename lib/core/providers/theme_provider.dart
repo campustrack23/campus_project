@@ -2,15 +2,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/local_storage.dart';
-import '../../main.dart';
 
-// 1. Define the provider that the UI will watch.
+/// ThemeMode state notifier provider
 final themeProvider = StateNotifierProvider<ThemeModeNotifier, ThemeMode>((ref) {
   final storage = ref.watch(localStorageProvider);
   return ThemeModeNotifier(storage);
 });
 
-// 2. Create the Notifier class to manage the state.
 class ThemeModeNotifier extends StateNotifier<ThemeMode> {
   final LocalStorage _storage;
 
@@ -18,9 +16,13 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
     _loadTheme();
   }
 
-  // Load the saved theme from local storage on startup.
   void _loadTheme() {
     final savedTheme = _storage.readString(LocalStorage.kThemeMode);
+    if (savedTheme == null) {
+      state = ThemeMode.system;
+      return;
+    }
+
     switch (savedTheme) {
       case 'light':
         state = ThemeMode.light;
@@ -34,14 +36,19 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
     }
   }
 
-  // Toggle the theme and save the new preference.
-  void toggleTheme(bool isDark) {
-    if (isDark) {
-      state = ThemeMode.dark;
-      _storage.writeString(LocalStorage.kThemeMode, 'dark');
-    } else {
-      state = ThemeMode.light;
-      _storage.writeString(LocalStorage.kThemeMode, 'light');
-    }
+  /// Set theme explicitly and persist choice
+  void setTheme(ThemeMode mode) {
+    state = mode;
+
+    final valueToSave = switch (mode) {
+      ThemeMode.light => 'light',
+      ThemeMode.dark => 'dark',
+      ThemeMode.system => 'system',
+    };
+
+    _storage.writeString(LocalStorage.kThemeMode, valueToSave);
   }
+
+  /// Convenience getter for UI usage
+  bool get isDarkMode => state == ThemeMode.dark;
 }

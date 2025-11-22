@@ -1,59 +1,112 @@
 // lib/core/services/notification_service.dart
+import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _local =
   FlutterLocalNotificationsPlugin();
-  static bool _initialized = false;
 
-  Future<void> init() async {
+  bool _initialized = false;
+
+  Future<void> init({Function(String? payload)? onNotificationTap}) async {
     if (_initialized) return;
+
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosInit = DarwinInitializationSettings();
-    const initSettings =
-    InitializationSettings(android: androidInit, iOS: iosInit);
-    await _local.initialize(initSettings);
+
+    const iosInit = DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+    );
+
+    const initSettings = InitializationSettings(
+      android: androidInit,
+      iOS: iosInit,
+      macOS: iosInit,
+    );
+
+    await _local.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: (NotificationResponse response) {
+        if (onNotificationTap != null) {
+          onNotificationTap(response.payload);
+        }
+      },
+    );
+
     _initialized = true;
+    debugPrint('NotificationService: Initialized');
   }
 
-  // Optional: ask runtime permission for Android 13+ and iOS
   Future<void> requestPermissions() async {
-    await init();
-    // Android 13+
-    await _local
-        .resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>()
-        ?.requestNotificationsPermission();
+    if (!_initialized) await init();
 
-    // iOS
-    await _local
-        .resolvePlatformSpecificImplementation<
-        IOSFlutterLocalNotificationsPlugin>()
-        ?.requestPermissions(alert: true, badge: true, sound: true);
+    try {
+      final androidImpl = _local
+          .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (androidImpl != null) {
+        await androidImpl.requestNotificationsPermission();
+      }
 
-    // macOS (if ever used)
-    await _local
-        .resolvePlatformSpecificImplementation<
-        MacOSFlutterLocalNotificationsPlugin>()
-        ?.requestPermissions(alert: true, badge: true, sound: true);
+      final iosImpl =
+      _local.resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
+      if (iosImpl != null) {
+        await iosImpl.requestPermissions(alert: true, badge: true, sound: true);
+      }
+
+      final macImpl =
+      _local.resolvePlatformSpecificImplementation<MacOSFlutterLocalNotificationsPlugin>();
+      if (macImpl != null) {
+        await macImpl.requestPermissions(alert: true, badge: true, sound: true);
+      }
+    } catch (e) {
+      debugPrint('NotificationService: Error requesting permissions: $e');
+    }
   }
 
-  Future<void> showLocal(String title, String body) async {
-    await init();
-    const android = AndroidNotificationDetails(
+  Future<void> showLocal(String title, String body, {String? payload}) async {
+    if (!_initialized) await init();
+
+    const androidDetails = AndroidNotificationDetails(
       'campustrack_local',
-      'CampusTrack Local',
-      channelDescription: 'In-app notifications',
+      'CampusTrack Notifications',
+      channelDescription: 'Alerts for attendance and timetable changes',
       importance: Importance.max,
       priority: Priority.high,
+      ticker: 'ticker',
+      styleInformation: BigTextStyleInformation(''),
     );
-    const ios = DarwinNotificationDetails();
-    const details = NotificationDetails(android: android, iOS: ios);
+
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    final millisRemainder =
+    DateTime.now().millisecondsSinceEpoch.remainder(100000);
+    final randomFallback = Random().nextInt(1000);
+    final notificationId = millisRemainder + randomFallback;
+
     await _local.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      notificationId,
       title,
       body,
       details,
+      payload: payload,
     );
   }
 }
+
+/// RIVERPOD PROVIDER
+final notifServiceProvider = Provider<NotificationService>((ref) {
+  return NotificationService();
+});

@@ -14,100 +14,59 @@ class AppDrawer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final userAsync = ref.watch(authStateProvider);
+    final authRepo = ref.read(authRepoProvider);
 
     return Drawer(
       child: SafeArea(
         child: userAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, stack) => const Center(child: Text('Could not load user')),
+          error: (_, __) => const Center(child: Text('Could not load user')),
           data: (user) {
-            final role = user?.role;
-            List<_DrawerItem> items;
-            String title;
+            if (user == null) return const SizedBox();
 
-            final baseItems = [
-              _DrawerItem('Teacher Directory', Icons.contact_mail_outlined, '/teachers/directory'),
-              _DrawerItem('Students Directory', Icons.people_alt, '/students/directory'),
-              _DrawerItem('Notifications', Icons.notifications, '/notifications'),
-              _DrawerItem('About', Icons.info_outline, '/about'),
+            final menu = _getMenuForRole(user.role);
+            final common = [
+              const _DrawerItem('Teachers', Icons.school_outlined, '/teachers/directory'),
+              const _DrawerItem('Students', Icons.people_alt_outlined, '/students/directory'),
+              const _DrawerItem('Notifications', Icons.notifications_outlined, '/notifications'),
+              const _DrawerItem('About', Icons.info_outline, '/about'),
             ];
-
-            if (role == UserRole.admin) {
-              title = 'Admin Menu';
-              items = [
-                _DrawerItem('Home', Icons.home, '/home/admin', isHome: true),
-                _DrawerItem('Manage Queries', Icons.question_answer, '/admin/queries'),
-                _DrawerItem('User Management', Icons.group, '/admin/users'),
-                _DrawerItem('Timetable Builder', Icons.calendar_month, '/admin/timetable'),
-                _DrawerItem('Attendance Overrides', Icons.fact_check, '/admin/attendance-overrides'),
-                _DrawerItem('Reset Passwords', Icons.lock_reset, '/admin/reset-passwords'),
-                ...baseItems,
-              ];
-            } else if (role == UserRole.teacher) {
-              title = 'Teacher Menu';
-              items = [
-                _DrawerItem('Home', Icons.home, '/home/teacher', isHome: true),
-                _DrawerItem('Internal Marks', Icons.assessment, '/teacher/internal-marks'),
-                _DrawerItem('Remarks Board', Icons.label_important_outline, '/teacher/remarks'),
-                ...baseItems,
-              ];
-            } else { // Handles both student and null user (logged out) cases
-              title = 'Student Menu';
-              items = [
-                _DrawerItem('Home', Icons.home, '/home/student', isHome: true),
-                _DrawerItem('My Attendance', Icons.fact_check, '/student/attendance'),
-                _DrawerItem('Internal Marks', Icons.assessment, '/student/internal-marks'),
-                _DrawerItem('Timetable', Icons.calendar_today, '/student/timetable'),
-                _DrawerItem('Raise Query', Icons.help_center, '/student/raise-query'),
-                ...baseItems,
-              ];
-            }
-
-            Widget tile(_DrawerItem it) => ListTile(
-              leading: Icon(it.icon),
-              title: Text(it.title),
-              onTap: () {
-                final router = GoRouter.of(context);
-                final currentPath = router.routeInformationProvider.value.uri.path;
-
-                // Close the drawer first
-                Navigator.pop(context);
-
-                // --- FIX: Implement hybrid navigation ---
-                // 1. If it's a "Home" link, always use .go() to reset the stack
-                if (it.isHome) {
-                  router.go(it.route);
-                }
-                // 2. If it's any other link, use .push()
-                else {
-                  // Only push if we are not already on that page
-                  if (currentPath != it.route) {
-                    router.push(it.route);
-                  }
-                }
-                // --- End of Fix ---
-              },
-            );
 
             return Column(
               children: [
                 ListTile(
-                  title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-                  subtitle: user == null
-                      ? null
-                      : Text(user.name, style: const TextStyle(fontWeight: FontWeight.w500)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                  title: Text(menu.title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                  subtitle: Text(user.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                   trailing: const AnimatedThemeSwitcher(),
+                  onTap: () {
+                    Navigator.pop(context);
+                    context.push('/profile');
+                  },
                 ),
-                const Divider(height: 0),
+                const Divider(height: 1),
                 Expanded(
-                  child: ListView(children: items.map(tile).toList()),
-                ),
-                const Divider(height: 0),
-                ListTile(
-                  dense: true,
-                  title: Center(
-                    child: Text('© ${DateTime.now().year} CampusTrack', style: Theme.of(context).textTheme.bodySmall),
+                  child: ListView(
+                    padding: EdgeInsets.zero,
+                    children: [
+                      ...menu.items.map((item) => _buildTile(context, item)),
+                      const Divider(),
+                      ...common.map((item) => _buildTile(context, item)),
+                    ],
                   ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.logout, color: Colors.red),
+                  title: const Text('Logout', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    authRepo.logout();
+                  },
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Text('v1.1.0 • © CampusTrack', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey)),
                 ),
               ],
             );
@@ -116,12 +75,65 @@ class AppDrawer extends ConsumerWidget {
       ),
     );
   }
+
+  Widget _buildTile(BuildContext context, _DrawerItem item) {
+    return ListTile(
+      leading: Icon(item.icon, color: Theme.of(context).colorScheme.primary),
+      title: Text(item.title),
+      onTap: () {
+        final router = GoRouter.of(context);
+        Navigator.pop(context);
+        if (router.routeInformationProvider.value.uri.path == item.route) return;
+        if (item.isHome) {
+          router.go(item.route);
+        } else {
+          router.push(item.route);
+        }
+      },
+    );
+  }
+
+  _RoleMenu _getMenuForRole(UserRole role) {
+    switch (role) {
+      case UserRole.admin:
+        return _RoleMenu('Admin Menu', [
+          const _DrawerItem('Dashboard', Icons.dashboard, '/home/admin', isHome: true),
+          const _DrawerItem('Users', Icons.manage_accounts, '/admin/users'),
+          const _DrawerItem('Queries', Icons.question_answer, '/admin/queries'),
+          const _DrawerItem('Timetable', Icons.edit_calendar, '/admin/timetable'),
+          const _DrawerItem('Att. Overrides', Icons.edit_note, '/admin/attendance-overrides'),
+          const _DrawerItem('Marks Overrides', Icons.grade, '/admin/internal-marks-overrides'),
+          const _DrawerItem('Passwords', Icons.lock_reset, '/admin/reset-passwords'),
+          const _DrawerItem('Data I/O', Icons.import_export, '/admin/import-export'),
+        ]);
+      case UserRole.teacher:
+        return _RoleMenu('Teacher Menu', [
+          const _DrawerItem('Dashboard', Icons.dashboard, '/home/teacher', isHome: true),
+          const _DrawerItem('Internal Marks', Icons.grading, '/teacher/internal-marks'),
+          const _DrawerItem('Remarks Board', Icons.label_important_outline, '/teacher/remarks'),
+        ]);
+      case UserRole.student:
+        return _RoleMenu('Student Menu', [
+          const _DrawerItem('Dashboard', Icons.dashboard, '/home/student', isHome: true),
+          const _DrawerItem('Attendance', Icons.fact_check_outlined, '/student/attendance'),
+          const _DrawerItem('Marks', Icons.score, '/student/internal-marks'),
+          const _DrawerItem('Timetable', Icons.calendar_month_outlined, '/student/timetable'),
+          const _DrawerItem('Raise Query', Icons.live_help_outlined, '/student/raise-query'),
+        ]);
+    }
+  }
+}
+
+class _RoleMenu {
+  final String title;
+  final List<_DrawerItem> items;
+  _RoleMenu(this.title, this.items);
 }
 
 class _DrawerItem {
   final String title;
   final IconData icon;
   final String route;
-  final bool isHome; // Flag to identify home routes
-  _DrawerItem(this.title, this.icon, this.route, {this.isHome = false});
+  final bool isHome;
+  const _DrawerItem(this.title, this.icon, this.route, {this.isHome = false});
 }

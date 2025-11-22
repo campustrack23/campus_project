@@ -1,5 +1,7 @@
 // lib/core/models/user.dart
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart'; // For listEquals
 import 'package:crypto/crypto.dart';
 import 'role.dart';
 
@@ -17,9 +19,7 @@ class UserAccount {
   final String passwordHash;
   final bool isActive;
   final DateTime createdAt;
-
-  // --- NEW FIELD ---
-  final List<String> qualifications;
+  final List<String> qualifications; // Teacher specific
 
   const UserAccount({
     required this.id,
@@ -35,8 +35,16 @@ class UserAccount {
     required this.passwordHash,
     this.isActive = true,
     required this.createdAt,
-    this.qualifications = const [], // Default to empty list
+    this.qualifications = const [],
   });
+
+  // Helper to check if data is incomplete (e.g. "Complete Profile" screens)
+  bool get isProfileComplete {
+    if (role == UserRole.student) {
+      return collegeRollNo != null && examRollNo != null && section != null;
+    }
+    return true;
+  }
 
   UserAccount copyWith({
     String? name,
@@ -49,7 +57,7 @@ class UserAccount {
     int? year,
     String? passwordHash,
     bool? isActive,
-    List<String>? qualifications, // Add to copyWith
+    List<String>? qualifications,
   }) =>
       UserAccount(
         id: id,
@@ -64,12 +72,11 @@ class UserAccount {
         year: year ?? this.year,
         passwordHash: passwordHash ?? this.passwordHash,
         isActive: isActive ?? this.isActive,
-        createdAt: createdAt,
-        qualifications: qualifications ?? this.qualifications, // Add to copyWith
+        createdAt: createdAt, // Usually doesn't change
+        qualifications: qualifications ?? this.qualifications,
       );
 
   Map<String, dynamic> toMap() => {
-    'id': id,
     'role': role.key,
     'name': name,
     'email': email,
@@ -81,32 +88,80 @@ class UserAccount {
     'year': year,
     'passwordHash': passwordHash,
     'isActive': isActive,
-    'createdAt': createdAt.toIso8601String(),
-    'qualifications': qualifications, // Add to toMap
+    'createdAt': Timestamp.fromDate(createdAt),
+    'qualifications': qualifications,
   };
 
-  factory UserAccount.fromMap(Map<String, dynamic> map) => UserAccount(
-    id: map['id'] as String,
-    role: UserRoleX.fromKey(map['role'] as String),
-    name: map['name'] as String,
-    email: map['email'] as String?,
-    phone: map['phone'] as String,
-    collegeRollNo: map['collegeRollNo'] as String?,
-    examRollNo: map['examRollNo'] as String?,
-    idCardPhotoPath: map['idCardPhotoPath'] as String?,
-    section: map['section'] as String?,
-    year: (map['year'] as num?)?.toInt(),
-    passwordHash: map['passwordHash'] as String,
-    isActive: (map['isActive'] as bool?) ?? true,
-    createdAt: DateTime.parse(map['createdAt'] as String),
-    // Read from map, default to empty list if null
-    qualifications: (map['qualifications'] as List<dynamic>?)
-        ?.map((e) => e.toString())
-        .toList() ?? const [],
-  );
+  factory UserAccount.fromMap(Map<String, dynamic> map) {
+    DateTime parseDate(dynamic input) {
+      if (input is Timestamp) return input.toDate();
+      if (input is String) return DateTime.tryParse(input) ?? DateTime.now();
+      if (input is DateTime) return input;
+      return DateTime.now();
+    }
+
+    return UserAccount(
+      id: map['id'] ?? '',
+      role: UserRoleX.fromKey(map['role']),
+      name: map['name'] ?? 'Unknown User',
+      email: map['email'],
+      phone: map['phone'] ?? '',
+      collegeRollNo: map['collegeRollNo'],
+      examRollNo: map['examRollNo'],
+      idCardPhotoPath: map['idCardPhotoPath'],
+      section: map['section'],
+      year: (map['year'] as num?)?.toInt(),
+      passwordHash: map['passwordHash'] ?? '',
+      isActive: (map['isActive'] as bool?) ?? true,
+      createdAt: parseDate(map['createdAt']),
+      qualifications: (map['qualifications'] as List?)
+          ?.map((e) => e.toString())
+          .toList() ??
+          const [],
+    );
+  }
 
   static String hashPassword(String raw) {
     final bytes = utf8.encode(raw);
     return sha256.convert(bytes).toString();
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+
+    return other is UserAccount &&
+        other.id == id &&
+        other.role == role &&
+        other.name == name &&
+        other.email == email &&
+        other.phone == phone &&
+        other.collegeRollNo == collegeRollNo &&
+        other.examRollNo == examRollNo &&
+        other.idCardPhotoPath == idCardPhotoPath &&
+        other.section == section &&
+        other.year == year &&
+        other.passwordHash == passwordHash &&
+        other.isActive == isActive &&
+        other.createdAt == createdAt &&
+        listEquals(other.qualifications, qualifications);
+  }
+
+  @override
+  int get hashCode {
+    return id.hashCode ^
+    role.hashCode ^
+    name.hashCode ^
+    (email?.hashCode ?? 0) ^
+    phone.hashCode ^
+    (collegeRollNo?.hashCode ?? 0) ^
+    (examRollNo?.hashCode ?? 0) ^
+    (idCardPhotoPath?.hashCode ?? 0) ^
+    (section?.hashCode ?? 0) ^
+    (year?.hashCode ?? 0) ^
+    passwordHash.hashCode ^
+    isActive.hashCode ^
+    createdAt.hashCode ^
+    Object.hashAll(qualifications);
   }
 }

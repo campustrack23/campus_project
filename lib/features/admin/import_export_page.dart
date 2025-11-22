@@ -1,4 +1,5 @@
 // lib/features/admin/import_export_page.dart
+
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -17,8 +18,14 @@ class ImportExportPage extends ConsumerStatefulWidget {
 }
 
 class _ImportExportPageState extends ConsumerState<ImportExportPage> {
-  final ctrl = TextEditingController();
+  final TextEditingController ctrl = TextEditingController();
   bool _isLoading = false;
+
+  @override
+  void dispose() {
+    ctrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -67,6 +74,8 @@ class _ImportExportPageState extends ConsumerState<ImportExportPage> {
                     style: const TextStyle(fontFamily: 'monospace'),
                     decoration: const InputDecoration(
                       hintText: 'JSON will appear here after export. Paste your JSON here to import.',
+                      border: OutlineInputBorder(),
+                      filled: true,
                     ),
                   ),
                 ),
@@ -92,23 +101,21 @@ class _ImportExportPageState extends ConsumerState<ImportExportPage> {
     );
   }
 
+  // ===== EXPORT ALL DATA TO TEXTAREA =====
   Future<void> _exportAll() async {
     setState(() => _isLoading = true);
+    ctrl.clear();
     try {
       final authRepo = ref.read(authRepoProvider);
       final ttRepo = ref.read(timetableRepoProvider);
       final attRepo = ref.read(attendanceRepoProvider);
       final queryRepo = ref.read(queryRepoProvider);
-      ref.read(remarkRepoProvider);
 
       final users = await authRepo.allUsers();
       final subjects = await ttRepo.allSubjects();
       final timetable = await ttRepo.allEntries();
       final attendance = await attRepo.allRecords();
       final queries = await queryRepo.allQueries();
-
-      // Remarks are specific to a teacher, so exporting all isn't logical.
-      // We'll export for the current admin as a sample if needed, or skip.
 
       final data = {
         'users': users.map((e) => e.toMap()).toList(),
@@ -117,6 +124,7 @@ class _ImportExportPageState extends ConsumerState<ImportExportPage> {
         'attendance': attendance.map((e) => e.toMap()).toList(),
         'queries': queries.map((e) => e.toMap()).toList(),
       };
+
       ctrl.text = const JsonEncoder.withIndent('  ').convert(data);
     } catch (e) {
       ctrl.text = 'Export failed: $e';
@@ -125,21 +133,41 @@ class _ImportExportPageState extends ConsumerState<ImportExportPage> {
     }
   }
 
+  // ===== COPY TO CLIPBOARD =====
   Future<void> _copy() async {
+    if (ctrl.text.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: ctrl.text));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied')));
   }
 
+  // ===== IMPORT ALL DATA FROM TEXTAREA =====
   Future<void> _importAll() async {
+    if (ctrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Text area is empty')),
+      );
+      return;
+    }
+
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Text('Confirm Import'),
-        content: const Text('This will OVERWRITE existing data in Firestore. This action cannot be undone. It will NOT create Firebase Auth users. This is for data import only.'),
+        content: const Text(
+          'WARNING: This will DELETE all existing data in the collections and replace it with this JSON.\n\n'
+              'Note: This restores user profiles, but does NOT create Firebase Auth accounts (passwords).',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Import')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('OVERWRITE DATA'),
+          ),
         ],
       ),
     );
@@ -150,9 +178,8 @@ class _ImportExportPageState extends ConsumerState<ImportExportPage> {
       final map = jsonDecode(ctrl.text) as Map<String, dynamic>;
       final db = ref.read(firestoreProvider);
 
-      // Note: This does not import users as that requires Firebase Auth.
-      // This is a simple data import for other collections.
-
+      // Import all supported collections.
+      await _importCollection(db, 'users', map['users']);
       await _importCollection(db, 'subjects', map['subjects']);
       await _importCollection(db, 'timetable', map['timetable']);
       await _importCollection(db, 'attendance', map['attendance']);
@@ -168,25 +195,42 @@ class _ImportExportPageState extends ConsumerState<ImportExportPage> {
     }
   }
 
+  /// Imports a Firestore collection with batching and deletes all old documents first.
   Future<void> _importCollection(FirebaseFirestore db, String collectionName, dynamic data) async {
     if (data is! List) return;
 
-    // Delete all existing documents in the collection
+    // 1. DELETE ALL EXISTING DOCUMENTS (in batches)
     final existingDocs = await db.collection(collectionName).get();
-    final deleteBatch = db.batch();
-    for (final doc in existingDocs.docs) {
-      deleteBatch.delete(doc.reference);
-    }
-    await deleteBatch.commit();
-
-    // Add new documents
-    final addBatch = db.batch();
-    for (final item in data) {
-      if (item is Map<String, dynamic> && item.containsKey('id')) {
-        final docRef = db.collection(collectionName).doc(item['id']);
-        addBatch.set(docRef, item);
+    if (existingDocs.docs.isNotEmpty) {
+      const batchSize = 400; // Firestore limit = 500
+      for (var i = 0; i < existingDocs.docs.length; i += batchSize) {
+        final batch = db.batch();
+        final end = (i + batchSize < existingDocs.docs.length) ? i + batchSize : existingDocs.docs.length;
+        final chunk = existingDocs.docs.sublist(i, end);
+        for (final doc in chunk) {
+          batch.delete(doc.reference);
+        }
+        await batch.commit();
       }
     }
-    await addBatch.commit();
+
+    // 2. ADD NEW DOCUMENTS (in batches)
+    if (data.isNotEmpty) {
+      const batchSize = 400;
+      for (var i = 0; i < data.length; i += batchSize) {
+        final batch = db.batch();
+        final end = (i + batchSize < data.length) ? i + batchSize : data.length;
+        final chunk = data.sublist(i, end);
+
+        // Add each item if it has 'id'
+        for (final item in chunk) {
+          if (item is Map<String, dynamic> && item.containsKey('id')) {
+            final docRef = db.collection(collectionName).doc(item['id']);
+            batch.set(docRef, item);
+          }
+        }
+        await batch.commit();
+      }
+    }
   }
 }

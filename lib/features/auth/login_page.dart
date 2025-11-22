@@ -1,10 +1,7 @@
 // lib/features/auth/login_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import '../../core/models/role.dart';
 import '../../main.dart';
-import '../../theme.dart';
 import '../../core/utils/firebase_error_parser.dart';
 
 class LoginPage extends ConsumerStatefulWidget {
@@ -18,6 +15,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   final _userCtrl = TextEditingController();
   final _pwdCtrl = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+
   bool _loading = false;
   bool _obscure = true;
 
@@ -30,8 +28,13 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isDark = Theme.of(context).brightness == Brightness.dark;
-    final loginCardColor = isDark ? darkTheme().cardTheme.color : const Color(0xFF2D232C);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Card color: dark tone even in light mode
+    final loginCardColor = isDark
+        ? Theme.of(context).cardTheme.color
+        : const Color(0xFF2D232C);
+
     final loginButtonFgColor = isDark ? Colors.black : const Color(0xFF2D232C);
     final loginButtonBgColor = isDark ? Theme.of(context).colorScheme.primary : Colors.white;
 
@@ -43,6 +46,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             child: Column(
               children: [
                 const SizedBox(height: 24),
+
+                // Logo Badge
                 Align(
                   alignment: Alignment.topLeft,
                   child: Padding(
@@ -71,12 +76,17 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     ),
                   ),
                 ),
+
                 const SizedBox(height: 60),
+
                 const Text(
                   "Login",
                   style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold),
                 ),
+
                 const SizedBox(height: 30),
+
+                // Login Card
                 Container(
                   padding: const EdgeInsets.all(24),
                   width: 350,
@@ -89,46 +99,66 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     child: AutofillGroup(
                       child: Column(
                         children: [
+                          // Email TextFormField
                           TextFormField(
-                              controller: _userCtrl,
-                              keyboardType: TextInputType.emailAddress,
-                              autofillHints: const [AutofillHints.username, AutofillHints.email],
-                              textInputAction: TextInputAction.next,
-                              decoration: const InputDecoration(hintText: "Email"),
-                              validator: (v) {
-                                if (v == null || v.trim().isEmpty) return 'Required';
-                                if (!v.contains('@')) return 'Enter a valid email';
-                                return null;
-                              }
+                            controller: _userCtrl,
+                            keyboardType: TextInputType.emailAddress,
+                            autofillHints: const [AutofillHints.username, AutofillHints.email],
+                            textInputAction: TextInputAction.next,
+                            style: const TextStyle(color: Colors.black87),
+                            decoration: const InputDecoration(
+                              hintText: "Email",
+                              fillColor: Colors.white,
+                              filled: true,
+                            ),
+                            validator: (v) {
+                              if (v == null || v.trim().isEmpty) return 'Required';
+                              if (!v.contains('@')) return 'Enter a valid email';
+                              return null;
+                            },
                           ),
                           const SizedBox(height: 18),
+
+                          // Password TextFormField
                           TextFormField(
                             controller: _pwdCtrl,
                             obscureText: _obscure,
                             enableSuggestions: false,
                             autocorrect: false,
                             textInputAction: TextInputAction.done,
+                            style: const TextStyle(color: Colors.black87),
                             onFieldSubmitted: (_) => _onLogin(),
                             autofillHints: const [AutofillHints.password],
                             decoration: InputDecoration(
                               hintText: "Password",
+                              fillColor: Colors.white,
+                              filled: true,
                               suffixIcon: IconButton(
                                 tooltip: _obscure ? 'Show' : 'Hide',
-                                icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                                icon: Icon(
+                                  _obscure ? Icons.visibility_off : Icons.visibility,
+                                  color: Colors.grey[700],
+                                ),
                                 onPressed: () => setState(() => _obscure = !_obscure),
                               ),
                             ),
                             validator: (v) => (v == null || v.trim().length < 6) ? 'Min 6 chars' : null,
                           ),
+
                           const SizedBox(height: 16),
+
+                          // Forgot password button
                           Align(
                             alignment: Alignment.centerRight,
                             child: TextButton(
                               onPressed: _showForgotDialog,
-                              child: Text('Forgot password?', style: TextStyle(color: isDark ? Colors.white70 : Colors.white)),
+                              child: const Text('Forgot password?', style: TextStyle(color: Colors.white70)),
                             ),
                           ),
+
                           const SizedBox(height: 4),
+
+                          // Login Button
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
@@ -171,36 +201,36 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   Future<void> _onLogin() async {
     if (!_formKey.currentState!.validate()) return;
+
     FocusScope.of(context).unfocus();
 
     setState(() => _loading = true);
+
     final auth = ref.read(authRepoProvider);
     final email = _userCtrl.text.trim();
-    final pwd = _pwdCtrl.text.trim();
+    final password = _pwdCtrl.text.trim();
+
     try {
-      // --- FIX: The _onLogin method is now ONLY responsible for logging in. ---
-      final user = await auth.loginWithEmail(email, pwd);
-      if (user == null) throw Exception('Invalid credentials or inactive user.');
-
-      // Navigation is now handled by the GoRouter redirect.
-      // All notification logic has been moved to notification_sync_service.dart
-      // to make the login feel instantaneous.
-      // --- End of Fix ---
-
+      await auth.loginWithEmail(email, password);
+      // On success GoRouter will handle redirect based on auth state
     } catch (e) {
       if (!mounted) return;
-      final message = FirebaseErrorParser.getMessage(e);
+
+      final msg = FirebaseErrorParser.getMessage(e);
+
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Login Failed: $message'),
+        content: Text(msg),
         backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
       ));
-    } finally {
-      if (mounted) setState(() => _loading = false);
+
+      setState(() => _loading = false);
     }
   }
 
   Future<void> _showForgotDialog() async {
     final emailCtrl = TextEditingController();
+
     await showDialog<void>(
       context: context,
       builder: (ctx) {
@@ -214,7 +244,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               TextField(
                 controller: emailCtrl,
                 keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(labelText: 'Email'),
+                decoration: const InputDecoration(labelText: 'Email', filled: false),
               ),
             ],
           ),
@@ -224,21 +254,27 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               onPressed: () async {
                 final email = emailCtrl.text.trim();
                 if (email.isEmpty || !email.contains('@')) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a valid email.')));
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('Please enter a valid email.')),
+                  );
                   return;
                 }
+
                 try {
                   await ref.read(authRepoProvider).requestPasswordReset(email);
-                  if (!mounted) return;
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password reset link sent to your email.')));
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Reset link sent! Check your email.')),
+                    );
+                  }
                 } catch (e) {
-                  if (!mounted) return;
-                  final message = FirebaseErrorParser.getMessage(e);
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text('Error: $message'),
-                    backgroundColor: Colors.red,
-                  ));
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text(FirebaseErrorParser.getMessage(e)),
+                      backgroundColor: Colors.red,
+                    ));
+                  }
                 }
               },
               child: const Text('Send Link'),
@@ -247,6 +283,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         );
       },
     );
+
     emailCtrl.dispose();
   }
 }

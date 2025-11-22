@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
-import 'package:collection/collection.dart'; // For .firstWhereOrNull
+import 'package:collection/collection.dart';
 
 import '../common/widgets/profile_avatar_action.dart';
 import '../common/widgets/app_drawer.dart';
@@ -13,13 +13,12 @@ import '../../core/models/attendance.dart';
 import '../../core/models/internal_marks.dart';
 import '../../main.dart';
 
-// Helper class to hold all the processed data
 class SubjectGradingData {
   final UserAccount teacher;
   final Subject subject;
   final List<UserAccount> students;
-  final Map<String, InternalMarks> marks; // key = studentId
-  final Map<String, int> attendancePercentages; // key = studentId
+  final Map<String, InternalMarks> marks;
+  final Map<String, int> attendancePercentages;
   final bool isPublished;
 
   SubjectGradingData({
@@ -32,16 +31,16 @@ class SubjectGradingData {
   });
 }
 
-// Provider for fetching all subjects taught by the current teacher
-final teacherSubjectsProvider = FutureProvider.autoDispose((ref) async {
-  final user = await ref.watch(authRepoProvider).currentUser();
-  if (user == null) throw Exception('Not logged in');
+int _calculateAttendanceMarks(int pct) {
+  if (pct <= 75) return 0;
+  if (pct <= 80) return 1;
+  if (pct <= 85) return 2;
+  if (pct <= 90) return 3;
+  if (pct <= 95) return 4;
+  if (pct <= 99) return 5;
+  return 6;
+}
 
-  final allSubjects = await ref.watch(timetableRepoProvider).allSubjects();
-  return allSubjects.where((s) => s.teacherId == user.id).toList()..sort((a,b) => a.name.compareTo(b.name));
-});
-
-// Provider for fetching and processing all student data for a selected subject
 final subjectGradingProvider = FutureProvider.autoDispose.family<SubjectGradingData, String>((ref, subjectId) async {
   final authRepo = ref.read(authRepoProvider);
   final attRepo = ref.read(attendanceRepoProvider);
@@ -51,11 +50,12 @@ final subjectGradingProvider = FutureProvider.autoDispose.family<SubjectGradingD
   final teacher = await authRepo.currentUser();
   if (teacher == null) throw Exception('Not logged in');
 
+  // This method now exists in the repository
   final subject = await ttRepo.subjectById(subjectId);
   if (subject == null) throw Exception('Subject not found');
 
   final students = await authRepo.studentsInSection(subject.section);
-  final allAttendance = await attRepo.allRecords(); // Fetch all once
+  final allAttendance = await attRepo.allRecords();
   final existingMarks = await marksRepo.getMarksForSubject(subjectId);
 
   final marksMap = {for (var m in existingMarks) m.studentId: m};
@@ -71,7 +71,24 @@ final subjectGradingProvider = FutureProvider.autoDispose.family<SubjectGradingD
         .where((r) => r.status == AttendanceStatus.present || r.status == AttendanceStatus.excused)
         .length;
     final pct = total == 0 ? 100 : ((present * 100) / total).round();
+
     attendancePercentages[student.id] = pct;
+    final calculatedAttMarks = _calculateAttendanceMarks(pct);
+
+    if (marksMap.containsKey(student.id)) {
+      final m = marksMap[student.id]!;
+      marksMap[student.id] = m.copyWith(
+        attendanceMarks: calculatedAttMarks.toDouble(),
+      ).recalculateTotal();
+    } else {
+      marksMap[student.id] = InternalMarks.empty(
+          subjectId: subjectId,
+          studentId: student.id,
+          teacherId: teacher.id
+      ).copyWith(
+        attendanceMarks: calculatedAttMarks.toDouble(),
+      ).recalculateTotal();
+    }
   }
 
   final isPublished = existingMarks.firstOrNull?.isVisibleToStudent ?? false;
@@ -86,6 +103,12 @@ final subjectGradingProvider = FutureProvider.autoDispose.family<SubjectGradingD
   );
 });
 
+final teacherSubjectsProvider = FutureProvider.autoDispose((ref) async {
+  final user = await ref.watch(authRepoProvider).currentUser();
+  if (user == null) throw Exception('Not logged in');
+  final allSubjects = await ref.watch(timetableRepoProvider).allSubjects();
+  return allSubjects.where((s) => s.teacherId == user.id).toList()..sort((a,b) => a.name.compareTo(b.name));
+});
 
 class InternalMarksPage extends ConsumerStatefulWidget {
   const InternalMarksPage({super.key});
@@ -125,18 +148,26 @@ class _InternalMarksPageState extends ConsumerState<InternalMarksPage> {
                 if (subjects.isEmpty) {
                   return const Center(child: Text('You are not the lead teacher for any subjects.'));
                 }
-                return DropdownButtonFormField<String>(
-                  value: _selectedSubjectId,
-                  hint: const Text('Select a subject to grade...'),
-                  isExpanded: true,
-                  items: subjects.map((s) => DropdownMenuItem(
-                    value: s.id,
-                    child: Text('${s.name} (${s.section})', overflow: TextOverflow.ellipsis),
-                  )).toList(),
-                  onChanged: (value) {
-                    setState(() => _selectedSubjectId = value);
-                  },
-                  decoration: const InputDecoration(labelText: 'Subject'),
+                // FIX: Use standard DropdownButton inside InputDecorator to avoid FormField deprecation
+                return InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Subject',
+                    border: OutlineInputBorder(),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _selectedSubjectId,
+                      isExpanded: true,
+                      hint: const Text('Select a subject to grade...'),
+                      items: subjects.map((s) => DropdownMenuItem(
+                        value: s.id,
+                        child: Text('${s.name} (${s.section})', overflow: TextOverflow.ellipsis),
+                      )).toList(),
+                      onChanged: (value) {
+                        setState(() => _selectedSubjectId = value);
+                      },
+                    ),
+                  ),
                 );
               },
             ),
@@ -159,16 +190,6 @@ class _GradingList extends ConsumerWidget {
   final String subjectId;
   const _GradingList({required this.subjectId});
 
-  int _calculateAttendanceMarks(int pct) {
-    if (pct <= 75) return 0;
-    if (pct <= 80) return 1;
-    if (pct <= 85) return 2;
-    if (pct <= 90) return 3;
-    if (pct <= 95) return 4;
-    if (pct <= 99) return 5;
-    return 6;
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final asyncData = ref.watch(subjectGradingProvider(subjectId));
@@ -189,14 +210,13 @@ class _GradingList extends ConsumerWidget {
                 subtitle: Text(data.isPublished ? 'Students can see these marks' : 'Marks are hidden'),
                 value: data.isPublished,
                 onChanged: (isVisible) async {
-                  // --- FIX: Show a confirmation dialog ---
                   final confirm = await showDialog<bool>(
                     context: context,
                     builder: (ctx) => AlertDialog(
                       title: Text(isVisible ? 'Publish Marks?' : 'Hide Marks?'),
                       content: Text(isVisible
-                          ? 'Are you sure you want to publish these marks? All ${data.students.length} students in this section will be able to see their grades.'
-                          : 'Are you sure you want to hide these marks? Students will no longer be able to see them.'),
+                          ? 'Are you sure you want to publish? Students will see their grades.'
+                          : 'Are you sure you want to hide these marks?'),
                       actions: [
                         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
                         FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(isVisible ? 'Publish' : 'Hide')),
@@ -205,7 +225,6 @@ class _GradingList extends ConsumerWidget {
                   );
 
                   if (confirm != true) return;
-                  // --- End of Fix ---
                   await ref.read(internalMarksRepoProvider).publishMarksForSubject(subjectId, isVisible);
                   ref.invalidate(subjectGradingProvider(subjectId));
                 },
@@ -217,41 +236,21 @@ class _GradingList extends ConsumerWidget {
                 itemCount: data.students.length,
                 itemBuilder: (context, index) {
                   final student = data.students[index];
+                  final marks = data.marks[student.id]!;
                   final attPct = data.attendancePercentages[student.id] ?? 0;
-                  final attMarks = _calculateAttendanceMarks(attPct);
-                  final marks = data.marks[student.id] ?? InternalMarks.empty(
-                    subjectId: subjectId,
-                    studentId: student.id,
-                    teacherId: data.teacher.id,
-                  );
-
-                  // Auto-update attendance marks in the model if they are different
-                  if (marks.attendanceMarks != attMarks) {
-                    final updatedMarks = marks.copyWith(
-                      attendanceMarks: attMarks.toDouble(),
-                      totalMarks: marks.assignmentMarks + marks.testMarks + attMarks,
-                    );
-
-                    // Use a post-frame callback to avoid building during a build
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      _updateMarks(ref, updatedMarks, false); // Silently update attendance
-                    });
-                  }
 
                   return _StudentMarkTile(
                     student: student,
                     marks: marks,
                     attendancePct: attPct,
                     onSave: (assignment, test) {
-                      _updateMarks(
+                      _saveMarks(
                         ref,
                         marks.copyWith(
                           assignmentMarks: assignment,
                           testMarks: test,
-                          totalMarks: assignment + test + attMarks,
                           updatedAt: DateTime.now(),
-                        ),
-                        true, // Show snackbar
+                        ).recalculateTotal(),
                       );
                     },
                   );
@@ -264,21 +263,14 @@ class _GradingList extends ConsumerWidget {
     );
   }
 
-  Future<void> _updateMarks(WidgetRef ref, InternalMarks marks, bool showSnackbar) async {
-    // 1. Save the new marks to the database
+  Future<void> _saveMarks(WidgetRef ref, InternalMarks marks) async {
     await ref.read(internalMarksRepoProvider).updateMarks(marks);
-
-    // 2. Invalidate the provider to force it to re-fetch from the database
     ref.invalidate(subjectGradingProvider(marks.subjectId));
-
-    // 3. Show feedback if it was an explicit save
-    if (showSnackbar && ref.context.mounted) {
-      ScaffoldMessenger.of(ref.context).showSnackBar(
-        SnackBar(
-          content: Text('Saved marks for ${marks.studentId}'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+    if (ref.context.mounted) {
+      ScaffoldMessenger.of(ref.context).showSnackBar(const SnackBar(
+        content: Text('Saved'),
+        duration: Duration(milliseconds: 800),
+      ));
     }
   }
 }
@@ -304,31 +296,38 @@ class _StudentMarkTileState extends State<_StudentMarkTile> {
   final TextEditingController _assignmentCtrl = TextEditingController();
   final TextEditingController _testCtrl = TextEditingController();
 
-  // --- FIX: Removed FocusNode listeners for auto-save ---
-
   @override
   void initState() {
     super.initState();
-    _assignmentCtrl.text = widget.marks.assignmentMarks.toStringAsFixed(0);
-    _testCtrl.text = widget.marks.testMarks.toStringAsFixed(0);
+    _updateControllers();
   }
 
-  void _saveMarks() {
-    // Unfocus to hide keyboard
+  @override
+  void didUpdateWidget(covariant _StudentMarkTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.marks != widget.marks) {
+      _updateControllers();
+    }
+  }
+
+  void _updateControllers() {
+    if (double.tryParse(_assignmentCtrl.text) != widget.marks.assignmentMarks) {
+      _assignmentCtrl.text = widget.marks.assignmentMarks.toStringAsFixed(0);
+    }
+    if (double.tryParse(_testCtrl.text) != widget.marks.testMarks) {
+      _testCtrl.text = widget.marks.testMarks.toStringAsFixed(0);
+    }
+  }
+
+  void _onSavePressed() {
     FocusScope.of(context).unfocus();
+    final assign = (double.tryParse(_assignmentCtrl.text) ?? 0.0).clamp(0.0, 12.0);
+    final test = (double.tryParse(_testCtrl.text) ?? 0.0).clamp(0.0, 12.0);
 
-    final assignment = double.tryParse(_assignmentCtrl.text) ?? 0.0;
-    final test = double.tryParse(_testCtrl.text) ?? 0.0;
+    _assignmentCtrl.text = assign.toStringAsFixed(0);
+    _testCtrl.text = test.toStringAsFixed(0);
 
-    // Clamp values
-    final clampedAssignment = assignment.clamp(0.0, 12.0);
-    final clampedTest = test.clamp(0.0, 12.0);
-
-    // Update text fields to show clamped values
-    _assignmentCtrl.text = clampedAssignment.toStringAsFixed(0);
-    _testCtrl.text = clampedTest.toStringAsFixed(0);
-
-    widget.onSave(clampedAssignment, clampedTest);
+    widget.onSave(assign, test);
   }
 
   @override
@@ -336,14 +335,6 @@ class _StudentMarkTileState extends State<_StudentMarkTile> {
     _assignmentCtrl.dispose();
     _testCtrl.dispose();
     super.dispose();
-  }
-
-  @override
-  void didUpdateWidget(covariant _StudentMarkTile oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Always update text if the underlying data changes
-    _assignmentCtrl.text = widget.marks.assignmentMarks.toStringAsFixed(0);
-    _testCtrl.text = widget.marks.testMarks.toStringAsFixed(0);
   }
 
   @override
@@ -360,42 +351,34 @@ class _StudentMarkTileState extends State<_StudentMarkTile> {
       ),
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          // --- FIX: Use a Wrap to prevent overflow ---
-          child: Wrap(
-            runSpacing: 16,
-            spacing: 12,
-            alignment: WrapAlignment.center,
+          padding: const EdgeInsets.all(16),
+          child: Column(
             children: [
-              _MarkInput(
-                label: 'Assignment',
-                max: 12,
-                controller: _assignmentCtrl,
+              Row(
+                children: [
+                  Expanded(child: _MarkInput(label: 'Assignment', max: 12, controller: _assignmentCtrl)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _MarkInput(label: 'Test/PPT', max: 12, controller: _testCtrl)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _MarkInput(
+                      label: 'Attendance',
+                      max: 6,
+                      value: '${widget.marks.attendanceMarks.toStringAsFixed(0)} (${widget.attendancePct}%)',
+                      isReadOnly: true
+                  )),
+                ],
               ),
-              _MarkInput(
-                label: 'Test/Ppt',
-                max: 12,
-                controller: _testCtrl,
-              ),
-              _MarkInput(
-                label: 'Attendance',
-                max: 6,
-                value: '${widget.marks.attendanceMarks.toStringAsFixed(0)} (${widget.attendancePct}%)',
-                isReadOnly: true,
-              ),
-              // --- FIX: Add an explicit Save button ---
-              Container(
+              const SizedBox(height: 12),
+              SizedBox(
                 width: double.infinity,
-                padding: const EdgeInsets.only(top: 8),
                 child: FilledButton.icon(
-                  icon: const Icon(Icons.save, size: 18),
+                  onPressed: _onSavePressed,
+                  icon: const Icon(Icons.save),
                   label: const Text('Save Marks'),
-                  onPressed: _saveMarks,
                 ),
-              ),
+              )
             ],
           ),
-          // --- End of Fix ---
         ),
       ],
     );
@@ -419,27 +402,16 @@ class _MarkInput extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // --- FIX: Use flexible width for Wrap ---
-    return SizedBox(
-      width: 100,
-      child: isReadOnly
-          ? TextField(
-        controller: TextEditingController(text: value),
-        readOnly: true,
-        decoration: InputDecoration(
-          labelText: '$label (/$max)',
-          disabledBorder: const UnderlineInputBorder(),
-        ),
-      )
-          : TextField(
-        controller: controller,
-        keyboardType: TextInputType.number,
-        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        decoration: InputDecoration(
-          labelText: '$label (/$max)',
-        ),
+    return TextField(
+      controller: isReadOnly ? TextEditingController(text: value) : controller,
+      readOnly: isReadOnly,
+      keyboardType: TextInputType.number,
+      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      decoration: InputDecoration(
+        labelText: '$label (/$max)',
+        filled: true,
+        isDense: true,
       ),
     );
-    // --- End of Fix ---
   }
 }

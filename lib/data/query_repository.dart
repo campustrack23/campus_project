@@ -4,16 +4,12 @@ import 'package:uuid/uuid.dart';
 import '../core/models/query_ticket.dart';
 import '../core/models/notification.dart';
 import '../core/services/firestore_notifier.dart';
-import 'notification_repository.dart';
 
 class QueryRepository {
-  final NotificationRepository notifRepo;
-  // --- FIX: Add FirestoreNotifier ---
   final FirestoreNotifier _firestoreNotifier;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  // --- FIX: Update constructor ---
-  QueryRepository(this.notifRepo, this._firestoreNotifier);
+  QueryRepository(this._firestoreNotifier);
 
   CollectionReference<QueryTicket> get _queriesRef =>
       _db.collection('queries').withConverter<QueryTicket>(
@@ -21,11 +17,35 @@ class QueryRepository {
         toFirestore: (query, _) => query.toMap(),
       );
 
+  // --- READ METHODS ---
+
+  /// Fetch all queries (Admin view)
   Future<List<QueryTicket>> allQueries() async {
     final snapshot = await _queriesRef.orderBy('createdAt', descending: true).get();
     return snapshot.docs.map((doc) => doc.data()).toList();
   }
 
+  /// Queries raised by a specific student
+  Future<List<QueryTicket>> getQueriesForStudent(String studentId) async {
+    final snapshot = await _queriesRef
+        .where('raisedByStudentId', isEqualTo: studentId)
+        .orderBy('createdAt', descending: true)
+        .get();
+    return snapshot.docs.map((doc) => doc.data()).toList();
+  }
+
+  /// Queries with status 'open' (optionally assign to teacher in extended versions)
+  Future<List<QueryTicket>> getOpenQueries() async {
+    final snapshot = await _queriesRef
+        .where('status', isEqualTo: 'open')
+        .orderBy('createdAt', descending: true)
+        .get();
+    return snapshot.docs.map((doc) => doc.data()).toList();
+  }
+
+  // --- WRITE METHODS ---
+
+  /// Create a new Query Ticket
   Future<QueryTicket> raise({
     required String raisedByStudentId,
     String? subjectId,
@@ -33,21 +53,23 @@ class QueryRepository {
     required String message,
   }) async {
     final now = DateTime.now();
+
     final ticket = QueryTicket(
       id: const Uuid().v4(),
       raisedByStudentId: raisedByStudentId,
       subjectId: subjectId,
       title: title,
       message: message,
+      status: QueryStatus.open,
       createdAt: now,
       updatedAt: now,
     );
 
-    // Set the document with a specific ID
     await _queriesRef.doc(ticket.id).set(ticket);
     return ticket;
   }
 
+  /// Update query status, optionally assigning a teacher, and notify student
   Future<void> updateStatus(String id, QueryStatus status, {String? assignedTo}) async {
     final docRef = _queriesRef.doc(id);
     final doc = await docRef.get();
@@ -60,12 +82,17 @@ class QueryRepository {
       'updatedAt': Timestamp.now(),
     });
 
-    // --- FIX: Send a real-time notification instead of just a local one ---
+    // Notify student via Firestore push notification
     await _firestoreNotifier.sendToUsers(
       userIds: [ticket.raisedByStudentId],
-      title: 'Query update',
+      title: 'Query Update',
       body: 'Your query "${ticket.title}" is now ${status.name}.',
-      type: NotificationType.queryUpdate.name,
+      type: NotificationType.queryUpdate,
     );
+  }
+
+  /// Delete a query ticket by id
+  Future<void> deleteQuery(String id) async {
+    await _queriesRef.doc(id).delete();
   }
 }
