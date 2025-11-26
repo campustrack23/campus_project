@@ -303,7 +303,7 @@ class _QuickActionsGrid extends StatelessWidget {
         itemCount: tiles.length,
         itemBuilder: (_, i) => Card(
           clipBehavior: Clip.antiAlias,
-          // FIX: Added this color property so white text shows up on purple background
+          // FIXED: Explicitly set color so white text is visible in light mode
           color: Theme.of(context).colorScheme.primary,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           child: InkWell(

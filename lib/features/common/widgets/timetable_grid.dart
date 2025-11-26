@@ -31,7 +31,17 @@ class TimetableGrid extends StatelessWidget {
     final Map<String, Map<int, TimetableEntry>> grid = {for (final d in days) d: {}};
 
     for (final e in entries) {
-      final pIndex = periodStarts.indexOf(e.startTime);
+      // FIX: Normalize time to handle "8:30" vs "08:30" mismatch
+      final entryTime = _normalizeTime(e.startTime);
+      int pIndex = -1;
+
+      for (int i = 0; i < periodStarts.length; i++) {
+        if (_normalizeTime(periodStarts[i]) == entryTime) {
+          pIndex = i;
+          break;
+        }
+      }
+
       if (pIndex != -1) {
         grid[e.dayOfWeek]![pIndex] = e;
       }
@@ -42,7 +52,6 @@ class TimetableGrid extends StatelessWidget {
     final nowMins = now.hour * 60 + now.minute;
     int currentPeriodIndex = -1;
 
-    // Only highlight if today is in the list (e.g. Mon-Sat)
     if (days.contains(todayKey)) {
       for (int i = 0; i < periodStarts.length; i++) {
         final startMins = _parseTime(periodStarts[i]);
@@ -67,7 +76,6 @@ class TimetableGrid extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: Table(
           defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-          // Fixed widths: First col smaller (Day), others uniform
           columnWidths: {
             0: const FixedColumnWidth(60), // Day Column
             for (int i = 0; i < periodStarts.length; i++)
@@ -78,7 +86,7 @@ class TimetableGrid extends StatelessWidget {
               color: Theme.of(context).dividerColor.withValues(alpha: 0.5),
               width: 1,
             ),
-            horizontalInside: BorderSide.none, // Cleaner look without row lines
+            horizontalInside: BorderSide.none,
           ),
           children: [
             // --- HEADER ROW ---
@@ -108,10 +116,7 @@ class TimetableGrid extends StatelessWidget {
                   border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.5))),
                 ),
                 children: [
-                  // Day Name (Vertical)
                   _buildDayCell(context, day, isToday: day == todayKey),
-
-                  // Class Cells
                   for (int i = 0; i < periodStarts.length; i++)
                     _buildClassCell(
                       context,
@@ -133,6 +138,12 @@ class TimetableGrid extends StatelessWidget {
     } catch (_) {
       return 0;
     }
+  }
+
+  String _normalizeTime(String time) {
+    final parts = time.split(':');
+    if (parts.length != 2) return time;
+    return '${int.parse(parts[0]).toString().padLeft(2, '0')}:${int.parse(parts[1]).toString().padLeft(2, '0')}';
   }
 
   // --- WIDGET BUILDERS ---
@@ -166,10 +177,10 @@ class TimetableGrid extends StatelessWidget {
   Widget _buildDayCell(BuildContext context, String day, {required bool isToday}) {
     final color = isToday ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onSurfaceVariant;
     return Container(
-      height: 85, // Fixed height for uniform rows
+      height: 85,
       alignment: Alignment.center,
       child: RotatedBox(
-        quarterTurns: 3, // Vertical text to save space
+        quarterTurns: 3,
         child: Text(
           day.toUpperCase(),
           style: TextStyle(
@@ -185,7 +196,6 @@ class TimetableGrid extends StatelessWidget {
 
   Widget _buildClassCell(BuildContext context, TimetableEntry? entry, {required bool isCurrent}) {
     if (entry == null) {
-      // Empty Slot
       return Container(
         height: 85,
         alignment: Alignment.center,
@@ -200,20 +210,13 @@ class TimetableGrid extends StatelessWidget {
       );
     }
 
-    // Data Preparation
     final subjCode = subjectCodes[entry.subjectId] ?? 'SUBJ';
-
-    // Resolve Teacher Name
     String teacherDisplay = '';
     if (entry.teacherIds.isNotEmpty) {
-      // Show first teacher, add "+" if multiple
       final first = teacherNames[entry.teacherIds.first] ?? '';
-// "Dr. Shikha" -> "Dr." (bad), try splitting differently or full name
-      // Better: just take last name or full name if short
       teacherDisplay = first.length > 10 ? '${first.substring(0, 8)}..' : first;
       if (entry.teacherIds.length > 1) teacherDisplay += ' +';
     } else {
-      // Fallback to Subject Lead
       final leadId = subjectLeadTeacherId[entry.subjectId];
       if (leadId != null) {
         final name = teacherNames[leadId] ?? '';
@@ -221,10 +224,9 @@ class TimetableGrid extends StatelessWidget {
       }
     }
 
-    // Active Class Styling
     final bgColor = isCurrent
         ? Theme.of(context).colorScheme.primaryContainer
-        : Theme.of(context).colorScheme.surfaceContainer; // Slight grey/white
+        : Theme.of(context).colorScheme.surfaceContainer;
 
     final borderColor = isCurrent
         ? Theme.of(context).colorScheme.primary
@@ -247,7 +249,6 @@ class TimetableGrid extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Subject Code
             Text(
               subjCode,
               maxLines: 1,
@@ -259,8 +260,6 @@ class TimetableGrid extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 4),
-
-            // Room Number
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
               decoration: BoxDecoration(
@@ -272,10 +271,7 @@ class TimetableGrid extends StatelessWidget {
                 style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
               ),
             ),
-
             const Spacer(),
-
-            // Teacher Name
             if (teacherDisplay.isNotEmpty)
               Row(
                 children: [

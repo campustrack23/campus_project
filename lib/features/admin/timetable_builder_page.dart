@@ -205,18 +205,15 @@ class _TimetableBuilderPageState extends ConsumerState<TimetableBuilderPage> {
       return;
     }
 
-    final allStudents =
-    await ref.read(authRepoProvider).allStudents();
+    // --- OPTIMIZATION: Fetch only relevant students ---
+    // Old: Fetch 2000 users. New: Fetch 40 users.
+    final recipients = (await ref.read(authRepoProvider).studentsInSection(e.section))
+        .map((s) => s.id);
 
-    if (!mounted) {
+    if (recipients.isEmpty) {
+      ref.invalidate(timetableBuilderProvider);
       return;
     }
-
-    final recipients = allStudents
-        .where((s) =>
-    (s.section ?? '').toUpperCase() ==
-        e.section.toUpperCase())
-        .map((s) => s.id);
 
     await ref.read(firestoreNotifierProvider).sendToUsers(
       userIds: recipients,
@@ -498,17 +495,14 @@ class _TimetableBuilderPageState extends ConsumerState<TimetableBuilderPage> {
           teacherId: ''),
     );
 
-    final allStudents =
-    await ref.read(authRepoProvider).allStudents();
-    if (!mounted) {
+    // --- OPTIMIZATION: Use studentsInSection ---
+    final recipients = (await ref.read(authRepoProvider).studentsInSection(newEntry.section))
+        .map((s) => s.id);
+
+    if (recipients.isEmpty) {
+      ref.invalidate(timetableBuilderProvider);
       return;
     }
-
-    final recipients = allStudents
-        .where((s) =>
-    (s.section ?? '').toUpperCase() ==
-        newEntry.section.toUpperCase())
-        .map((s) => s.id);
 
     await ref.read(firestoreNotifierProvider).sendToUsers(
       userIds: recipients,

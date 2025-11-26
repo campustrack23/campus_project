@@ -96,13 +96,12 @@ class _ReviewAttendancePageState extends ConsumerState<ReviewAttendancePage> {
 
           _initializeMarks(records, students);
 
-          // FIX: Compare dates in Local Time to allow editing today
-          final now = DateTime.now();
-          final sessionDateLocal = session.createdAt.toLocal();
-
-          _isEditable = now.year == sessionDateLocal.year &&
-              now.month == sessionDateLocal.month &&
-              now.day == sessionDateLocal.day;
+          // FIX: Allow editing for 24 hours after session creation.
+          // This prevents locking out teachers if a class ends near midnight.
+          final now = DateTime.now().toUtc();
+          final sessionTime = session.createdAt; // stored as UTC
+          final hoursDiff = now.difference(sessionTime).inHours;
+          _isEditable = hoursDiff < 24;
 
           final q = _searchCtrl.text.trim().toLowerCase();
           final visible = students.where((s) {

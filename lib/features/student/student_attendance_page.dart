@@ -5,7 +5,6 @@ import 'package:intl/intl.dart';
 
 import '../common/widgets/profile_avatar_action.dart';
 import '../common/widgets/app_drawer.dart';
-// --- FIX: Import the new error widget ---
 import '../common/widgets/async_error_widget.dart';
 import '../../core/models/attendance.dart';
 import '../../core/models/user.dart';
@@ -50,9 +49,13 @@ final attendanceDataProvider = FutureProvider.autoDispose((ref) async {
   final subjects = {for (final s in subjectsList) s.id: s};
 
   int startMinutes(String slot) {
-    final hh = int.parse(slot.substring(0, 2));
-    final mm = int.parse(slot.substring(3, 5));
-    return hh * 60 + mm;
+    try {
+      final hh = int.parse(slot.substring(0, 2));
+      final mm = int.parse(slot.substring(3, 5));
+      return hh * 60 + mm;
+    } catch (_) {
+      return 0;
+    }
   }
 
   Color chipColor(int pct) {
@@ -74,11 +77,18 @@ final attendanceDataProvider = FutureProvider.autoDispose((ref) async {
   final List<StudentSubjectStats> subjectStats = [];
   for (final entry in bySubj.entries) {
     final total = entry.value.length;
+
+    // FIX: Count 'Late' as Present for percentage calculation
     final present = entry.value
-        .where((r) => r.status == AttendanceStatus.present || r.status == AttendanceStatus.excused)
+        .where((r) =>
+    r.status == AttendanceStatus.present ||
+        r.status == AttendanceStatus.excused ||
+        r.status == AttendanceStatus.late)
         .length;
+
     final pct = total == 0 ? 0 : ((present * 100) / total).round();
     final subjName = subjects[entry.key]?.name ?? entry.key;
+
     subjectStats.add(StudentSubjectStats(
       subjectId: entry.key,
       name: subjName,
@@ -128,12 +138,10 @@ class _StudentAttendancePageState extends ConsumerState<StudentAttendancePage> {
       drawer: const AppDrawer(),
       body: asyncData.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        // --- FIX: Use the new error widget ---
         error: (err, stack) => AsyncErrorWidget(
           message: err.toString(),
           onRetry: () => ref.invalidate(attendanceDataProvider),
         ),
-        // --- End of Fix ---
         data: (data) {
           final subjectsList = (data as _AttendanceData).subjectStats;
           final allRecords = data.sortedRecords;
@@ -216,15 +224,23 @@ class _StudentAttendancePageState extends ConsumerState<StudentAttendancePage> {
                     itemBuilder: (_, i) {
                       final r = filteredRecords[i];
                       final subjName = subjectsMap[r.subjectId] ?? r.subjectId;
-                      final ok = r.status == AttendanceStatus.present || r.status == AttendanceStatus.excused;
+                      // Late is also "OK" for presence purposes, though maybe colored orange
+                      final isPresent = r.status == AttendanceStatus.present || r.status == AttendanceStatus.excused;
+                      final isLate = r.status == AttendanceStatus.late;
+
                       return ListTile(
-                        leading: Icon(ok ? Icons.check_circle : Icons.cancel,
-                            color: ok ? Colors.green : Colors.red),
+                        leading: Icon(
+                          isPresent ? Icons.check_circle : (isLate ? Icons.watch_later : Icons.cancel),
+                          color: isPresent ? Colors.green : (isLate ? Colors.orange : Colors.red),
+                        ),
                         title: Text(subjName),
                         subtitle: Text('${dFmt.format(r.date.toLocal())}  ${r.slot}'),
                         trailing: Text(
                           r.status.name.toUpperCase(),
-                          style: TextStyle(fontWeight: FontWeight.w700, color: ok ? Colors.green : Colors.red),
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: isPresent ? Colors.green : (isLate ? Colors.orange : Colors.red)
+                          ),
                         ),
                       );
                     },

@@ -18,8 +18,11 @@ final studentProfileStatsProvider = FutureProvider.autoDispose((ref) async {
   final records = await ref.watch(attendanceRepoProvider).forStudent(user.id);
   final total = records.length;
 
+  // FIX: Late counts as present
   final present = records.where((r) =>
-  r.status == AttendanceStatus.present || r.status == AttendanceStatus.excused
+  r.status == AttendanceStatus.present ||
+      r.status == AttendanceStatus.excused ||
+      r.status == AttendanceStatus.late
   ).length;
 
   final pct = total == 0 ? 100 : ((present * 100) / total).round();
@@ -566,7 +569,6 @@ class _CommonSettingsSection extends ConsumerWidget {
             await ref.read(authRepoProvider).logout();
           },
         ),
-        // --- NEW: DELETE ACCOUNT BUTTON ---
         const Divider(height: 1),
         ListTile(
           leading: Icon(Icons.delete_forever, color: Theme.of(context).colorScheme.error),
@@ -574,7 +576,6 @@ class _CommonSettingsSection extends ConsumerWidget {
           subtitle: const Text('Permanently delete your data', style: TextStyle(fontSize: 11)),
           onTap: () => _confirmDelete(context, ref),
         ),
-        // ----------------------------------
       ],
     );
   }

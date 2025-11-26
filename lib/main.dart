@@ -78,7 +78,7 @@ final allUsersProvider = FutureProvider<List<UserAccount>>((ref) async {
   return ref.watch(authRepoProvider).allUsers();
 });
 
-// ===== 4. ROUTER =====
+// ===== 4. ROUTER (SECURE) =====
 
 final goRouterProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
@@ -95,15 +95,19 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       final isLoading = authState.isLoading;
       final hasError = authState.hasError;
 
+      // 1. Loading & Error States
       if (isLoading) return (location == '/') ? null : '/';
       if (hasError) return '/login';
 
+      // 2. Auth Checks
       final loggedIn = user != null;
       final onLoginPage = location == '/login';
       final onSplashPage = location == '/';
 
+      // If not logged in, force login (unless already there)
       if (!loggedIn) return onLoginPage ? null : '/login';
 
+      // 3. Redirect Logged-in Users away from Auth pages
       if (onLoginPage || onSplashPage) {
         switch (user.role) {
           case UserRole.student: return '/home/student';
@@ -111,7 +115,32 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           case UserRole.admin: return '/home/admin';
         }
       }
-      return null;
+
+      // 4. SECURITY: Role-Based Access Control (RBAC)
+      // Prevent Students/Teachers from accessing Admin routes
+      if (location.startsWith('/admin')) {
+        if (user.role != UserRole.admin) {
+          return '/home/${user.role.name}'; // Kick back to their dashboard
+        }
+      }
+
+      // Prevent Students from accessing Teacher routes
+      if (location.startsWith('/teacher')) {
+        if (user.role != UserRole.teacher && user.role != UserRole.admin) {
+          return '/home/${user.role.name}';
+        }
+      }
+
+      // Prevent Teachers/Admins from accessing Student routes (Optional, but cleaner)
+      if (location.startsWith('/student')) {
+        if (user.role != UserRole.student && user.role != UserRole.admin) {
+          // Admins might want to debug student views, so maybe allow them,
+          // but for strictness:
+          return '/home/${user.role.name}';
+        }
+      }
+
+      return null; // Allow access
     },
   );
 });
@@ -165,7 +194,6 @@ class CampusTrackApp extends ConsumerWidget {
       themeMode: themeMode,
       routerConfig: router,
       debugShowCheckedModeBanner: false,
-      // FIX: Global Keyboard Dismissal
       builder: (context, child) => GestureDetector(
         onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
         child: child,
