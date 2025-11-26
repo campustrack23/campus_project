@@ -8,7 +8,7 @@ import '../common/widgets/app_drawer.dart';
 class AboutPage extends ConsumerWidget {
   const AboutPage({super.key});
 
-  static const String appVersion = "1.1.0";
+  static const String appVersion = "1.0.0";
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -24,7 +24,6 @@ class AboutPage extends ConsumerWidget {
           builder: (ctx) => IconButton(
             tooltip: 'Menu',
             icon: const Icon(Icons.menu),
-            // FIX: safer drawer opening
             onPressed: () => Scaffold.of(ctx).openDrawer(),
           ),
         ),
@@ -32,8 +31,6 @@ class AboutPage extends ConsumerWidget {
         actions: const [ProfileAvatarAction()],
       ),
       drawer: const AppDrawer(),
-
-      // FIX: consistent Material spacing
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -57,79 +54,48 @@ class AboutPage extends ConsumerWidget {
             icon: Icons.assessment,
             title: 'Internal Marks Management',
             subtitle:
-            'Manage assignments, tests and attendance marks — publish when ready.',
+            'Automated calculation of attendance scores and internal assessments.',
           ),
           const _FeatureTile(
             icon: Icons.calendar_today_outlined,
             title: 'Dynamic Timetables',
             subtitle:
-            'Updated timetables for students & teachers with offline caching.',
+            'Live timetables for students & teachers with offline caching.',
           ),
           const _FeatureTile(
-            icon: Icons.notifications_active_outlined,
-            title: 'Instant Notifications',
+            icon: Icons.live_help_outlined,
+            title: 'Help Desk',
             subtitle:
-            'Real-time alerts for query updates, timetable changes and attendance warnings.',
-          ),
-          const _FeatureTile(
-            icon: Icons.contact_mail_outlined,
-            title: 'Campus Directories',
-            subtitle:
-            'View students and teachers with qualification details.',
+            'Raise queries directly to the administration and track their status in real-time.',
           ),
 
           const Divider(height: 32),
 
-          Text("What's New (v$appVersion)", style: headingStyle),
+          Text('Developed By', style: headingStyle),
           const SizedBox(height: 12),
-
-          const _FeatureTile(
-            icon: Icons.assessment_outlined,
-            title: 'Internal Marks',
-            subtitle:
-            'Teachers can now grade & publish. Students see their published marks.',
-          ),
-          const _FeatureTile(
-            icon: Icons.school_outlined,
-            title: 'Teacher Qualifications',
-            subtitle:
-            'Teachers can now display qualifications in their directory profile.',
+          const ListTile(
+            leading: CircleAvatar(child: Icon(Icons.code)),
+            title: Text('Mohit Chauhan & Yash Gulati'),
+            subtitle: Text('Full Stack Flutter Developers'),
           ),
 
           const Divider(height: 32),
 
-          Text('Technology & Credits', style: headingStyle),
+          Text('Technology', style: headingStyle),
           const SizedBox(height: 12),
 
           const _FeatureTile(
-            icon: Icons.code,
-            title: 'Flutter & Dart',
-            subtitle:
-            'Crafted with Flutter for a high-performance cross-platform experience.',
+            icon: Icons.flutter_dash,
+            title: 'Flutter & Riverpod',
+            subtitle: 'High-performance cross-platform UI with robust state management.',
           ),
           const _FeatureTile(
-            icon: Icons.local_fire_department_outlined,
+            icon: Icons.cloud_circle,
             title: 'Firebase',
-            subtitle:
-            'Authentication, Firestore database, notifications — all securely powered by Firebase.',
-          ),
-          const _FeatureTile(
-            icon: Icons.storage,
-            title: 'Riverpod',
-            subtitle:
-            'Reliable and simple state management using Riverpod.',
+            subtitle: 'Powered by Firestore, Cloud Functions, and Firebase Auth.',
           ),
 
-          const Divider(height: 32),
-
-          Text('Disclaimer', style: headingStyle),
-          const SizedBox(height: 6),
-          Text(
-            'This app is provided as-is. All user data is stored securely in Firebase Firestore and governed by strict security rules.',
-            style: theme.textTheme.bodySmall,
-          ),
-
-          const SizedBox(height: 24),
+          const SizedBox(height: 40),
 
           Center(
             child: Text(

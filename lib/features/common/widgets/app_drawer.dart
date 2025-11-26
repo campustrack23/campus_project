@@ -66,7 +66,7 @@ class AppDrawer extends ConsumerWidget {
                 ),
                 Padding(
                   padding: const EdgeInsets.all(16.0),
-                  child: Text('v1.1.0 • © CampusTrack', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey)),
+                  child: Text('v1.2.0 • © CampusTrack', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey)),
                 ),
               ],
             );
@@ -81,13 +81,20 @@ class AppDrawer extends ConsumerWidget {
       leading: Icon(item.icon, color: Theme.of(context).colorScheme.primary),
       title: Text(item.title),
       onTap: () {
-        final router = GoRouter.of(context);
+        // 1. Close the drawer first
         Navigator.pop(context);
-        if (router.routeInformationProvider.value.uri.path == item.route) return;
+
+        // 2. Navigation Logic
         if (item.isHome) {
-          router.go(item.route);
+          // Always use 'go' for the dashboard to clear the stack.
+          // This fixes the issue where clicking 'Dashboard' from 'About' did nothing.
+          context.go(item.route);
         } else {
-          router.push(item.route);
+          // For other pages, check if we are already there to avoid duplicate pushing.
+          final String currentPath = GoRouterState.of(context).uri.path;
+          if (currentPath != item.route) {
+            context.push(item.route);
+          }
         }
       },
     );
