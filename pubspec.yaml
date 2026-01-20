@@ -35,7 +35,7 @@ dependencies:
   qr_flutter: ^4.1.0      # For generating QR codes on teacher's device
   mobile_scanner: ^5.2.3   # For scanning QR codes on student's device
   secure_application: ^4.1.0
-  collection: ^1.19.1
+  collection: 1.18.1
   url_launcher: ^6.3.2
   #flutter_windowmanager: ^0.2.0   # For restricting screenshots on Android
 
