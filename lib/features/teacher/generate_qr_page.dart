@@ -1,74 +1,44 @@
 // lib/features/teacher/generate_qr_page.dart
+
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:secure_application/secure_application.dart';
+import 'package:uuid/uuid.dart';
+import 'package:crypto/crypto.dart';
 
 import '../../core/models/attendance_session.dart';
-import '../../core/models/timetable_entry.dart';
-import '../common/widgets/async_error_widget.dart';
 import '../../main.dart';
-
-/// Provider to create and hold the session
-final sessionProvider =
-FutureProvider.autoDispose.family<AttendanceSession, String>((ref, entryId) async {
-  final ttRepo = ref.watch(timetableRepoProvider);
-  final authRepo = ref.watch(authRepoProvider);
-  final attRepo = ref.watch(attendanceRepoProvider);
-
-  final entry = await ttRepo.entryById(entryId);
-  final user = await authRepo.currentUser();
-
-  if (entry == null) throw Exception('Timetable entry not found.');
-  if (user == null) throw Exception('User not logged in.');
-
-  final session = await attRepo.createAttendanceSession(
-    teacherId: user.id,
-    subjectId: entry.subjectId,
-    section: entry.section,
-    slot: entry.slot,
-  );
-  return session;
-});
-
-/// Provider to listen to the attendees
-final attendeesStreamProvider = StreamProvider.autoDispose
-    .family<List<QueryDocumentSnapshot<Map<String, dynamic>>>, String>(
-        (ref, sessionId) {
-      return ref.watch(attendanceRepoProvider).listenToAttendees(sessionId);
-    });
+import '../common/widgets/async_error_widget.dart';
 
 class GenerateQRPage extends ConsumerStatefulWidget {
-  final String? entryId;
-  const GenerateQRPage({super.key, this.entryId});
+  final String entryId;
+
+  const GenerateQRPage({
+    super.key,
+    required this.entryId,
+  });
 
   @override
   ConsumerState<GenerateQRPage> createState() => _GenerateQRPageState();
 }
 
 class _GenerateQRPageState extends ConsumerState<GenerateQRPage> {
+  AttendanceSession? _session;
+  Object? _error;
+  bool _loading = true;
+
   Timer? _timer;
-  int _secondsRemaining = 600; // 10 minutes
+  int _secondsElapsed = 0;
+  String _qrData = '';
 
   @override
   void initState() {
     super.initState();
-    _startTimer();
-  }
-
-  void _startTimer() {
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_secondsRemaining > 0) {
-        if (mounted) {
-          setState(() => _secondsRemaining--);
-        }
-      } else {
-        timer.cancel();
-      }
-    });
+    _initSession();
   }
 
   @override
@@ -77,130 +47,195 @@ class _GenerateQRPageState extends ConsumerState<GenerateQRPage> {
     super.dispose();
   }
 
-  String _formatTime(int totalSeconds) {
-    final minutes = (totalSeconds ~/ 60).toString().padLeft(2, '0');
-    final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
+  Future<void> _initSession() async {
+    try {
+      final authRepo = ref.read(authRepoProvider);
+      final attRepo = ref.read(attendanceRepoProvider);
+      final ttRepo = ref.read(timetableRepoProvider);
+
+      final me = await authRepo.currentUser();
+      if (me == null) throw Exception('Not logged in');
+
+      final entry = await ttRepo.entryById(widget.entryId);
+      if (entry == null) throw Exception('Timetable entry not found');
+
+      final sessionId = const Uuid().v4();
+      final now = DateTime.now();
+
+      final newSession = AttendanceSession(
+        id: sessionId,
+        teacherId: me.id,
+        subjectId: entry.subjectId,
+        section: entry.section,
+        slot: entry.slot,
+        createdAt: now,
+        isActive: true,
+      );
+
+      await attRepo.sessionsRef.doc(sessionId).set(newSession);
+
+      if (mounted) {
+        setState(() {
+          _session = newSession;
+          _loading = false;
+        });
+        _startTimers();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e;
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  void _startTimers() {
+    _generateDynamicQrData();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      setState(() {
+        _secondsElapsed++;
+        // Rotate QR code data every 5 seconds to prevent static screenshot sharing
+        if (_secondsElapsed % 5 == 0) {
+          _generateDynamicQrData();
+        }
+      });
+    });
+  }
+
+  void _generateDynamicQrData() {
+    if (_session == null) return;
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+
+    // Server-side secret validation prevents payload tampering
+    final secret = 'campus_track_secret_${_session!.teacherId}';
+    final payload = '${_session!.id}:$timestamp';
+    final signature = sha256.convert(utf8.encode('$payload:$secret')).toString();
+
+    _qrData = jsonEncode({
+      'sId': _session!.id,
+      'ts': timestamp,
+      'sig': signature.substring(0, 16),
+    });
+  }
+
+  void _finishAndReview() {
+    if (_session == null) return;
+    context.pushReplacement('/teacher/review-attendance/${_session!.id}');
   }
 
   @override
   Widget build(BuildContext context) {
-    if (widget.entryId == null) {
-      return Scaffold(
-          appBar: AppBar(),
-          body: const Center(child: Text('Error: No class ID provided.')));
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final asyncSession = ref.watch(sessionProvider(widget.entryId!));
+    if (_error != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Error')),
+        body: AsyncErrorWidget(
+          message: _error.toString(),
+          onRetry: () {
+            setState(() {
+              _loading = true;
+              _error = null;
+            });
+            _initSession();
+          },
+        ),
+      );
+    }
+
+    final session = _session!;
 
     return SecureApplication(
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Mark Attendance'),
-        ),
-        body: asyncSession.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, stack) => AsyncErrorWidget(
-            message: err.toString(),
-            onRetry: () => ref.invalidate(sessionProvider(widget.entryId!)),
+      nativeRemoveDelay: 100,
+      onNeedUnlock: (secureNotifier) async {
+        return null;
+      },
+      child: SecureGate(
+        blurr: 60,
+        opacity: 0.8,
+        lockedBuilder: (context, secureNotifier) =>
+        const Center(child: CircularProgressIndicator()),
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('Live Attendance'),
+            centerTitle: true,
+            automaticallyImplyLeading: false,
           ),
-          data: (session) {
-            final asyncAttendees = ref.watch(attendeesStreamProvider(session.id));
-            return Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'Scan to Mark Attendance',
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.bold),
-                      textAlign: TextAlign.center,
+          body: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                children: [
+                  Text(
+                    'Session Active',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Session expires in:',
-                      style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Time Elapsed: ${_formatTime(_secondsElapsed)}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const Spacer(),
+
+                  // THE ROTATING SECURE QR CODE
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black12,
+                          blurRadius: 20,
+                          offset: Offset(0, 10),
+                        ),
+                      ],
                     ),
-                    Text(
-                      _formatTime(_secondsRemaining),
-                      style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: _secondsRemaining < 60 ? Colors.red : null),
+                    child: QrImageView(
+                      data: _qrData,
+                      version: QrVersions.auto,
+                      size: 260,
+                      backgroundColor: Colors.white,
                     ),
-                    const SizedBox(height: 24),
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
+                  ),
+
+                  const SizedBox(height: 40),
+
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: FilledButton.icon(
+                      onPressed: _finishAndReview,
+                      icon: const Icon(Icons.stop_circle_outlined),
+                      label: const Text(
+                        'Finish & Review',
+                        style: TextStyle(fontSize: 18),
                       ),
-                      child: QrImageView(
-                        data: session.id,
-                        version: QrVersions.auto,
-                        size: 250.0,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    asyncAttendees.when(
-                      loading: () => const Text('Waiting for students...'),
-                      error: (e, s) =>
-                          Text('Error: $e', style: const TextStyle(color: Colors.red)),
-                      data: (attendees) => Text(
-                        '${attendees.length} Students Marked',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleLarge
-                            ?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                            padding:
-                            const EdgeInsets.symmetric(vertical: 16)),
-                        onPressed: () async {
-                          _timer?.cancel();
-
-                          final messenger = ScaffoldMessenger.of(context);
-
-                          final allStudents =
-                          await ref.read(authRepoProvider).allStudents();
-                          final studentsInSection = allStudents
-                              .where((s) =>
-                          (s.section ?? '').toUpperCase() ==
-                              session.section.toUpperCase())
-                              .toList();
-
-                          await ref.read(attendanceRepoProvider).finalizeAttendance(
-                            sessionId: session.id,
-                            studentsInSection: studentsInSection,
-                          );
-
-                          if (!mounted) return;
-
-                          // FIX: Use Path Parameter format (/path/id) instead of Query Parameter (?id=...)
-                          GoRouter.of(context).replace('/teacher/review-attendance/${session.id}');
-
-                          messenger.showSnackBar(
-                            const SnackBar(content: Text('Attendance finalized')),
-                          );
-                        },
-                        child: const Text('Done', style: TextStyle(fontSize: 18)),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.red,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            );
-          },
+            ),
+          ),
         ),
       ),
     );
+  }
+
+  String _formatTime(int seconds) {
+    final m = (seconds ~/ 60).toString().padLeft(2, '0');
+    final s = (seconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
   }
 }

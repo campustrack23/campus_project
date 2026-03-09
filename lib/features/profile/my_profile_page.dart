@@ -1,15 +1,18 @@
 // lib/features/profile/my_profile_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../core/models/role.dart';
 import '../../core/models/user.dart';
 import '../../core/models/attendance.dart';
+import '../../core/utils/firebase_error_parser.dart';
 import '../../main.dart';
 import '../common/widgets/async_error_widget.dart';
-import '../../core/utils/firebase_error_parser.dart';
 
-// --- ROLE-SPECIFIC PROVIDERS ---
+// -----------------------------------------------------------------------------
+// ROLE-SPECIFIC PROVIDERS
+// -----------------------------------------------------------------------------
 
 final studentProfileStatsProvider = FutureProvider.autoDispose((ref) async {
   final user = await ref.watch(authRepoProvider).currentUser();
@@ -18,12 +21,10 @@ final studentProfileStatsProvider = FutureProvider.autoDispose((ref) async {
   final records = await ref.watch(attendanceRepoProvider).forStudent(user.id);
   final total = records.length;
 
-  // FIX: Late counts as present
   final present = records.where((r) =>
   r.status == AttendanceStatus.present ||
       r.status == AttendanceStatus.excused ||
-      r.status == AttendanceStatus.late
-  ).length;
+      r.status == AttendanceStatus.late).length;
 
   final pct = total == 0 ? 100 : ((present * 100) / total).round();
 
@@ -34,28 +35,33 @@ final teacherProfileSubjectsProvider = FutureProvider.autoDispose((ref) async {
   final user = await ref.watch(authRepoProvider).currentUser();
   if (user == null) throw Exception('Not logged in');
 
-  final allSubjects = await ref.watch(timetableRepoProvider).allSubjects();
-  final mySubjects = allSubjects.where((s) => s.teacherId == user.id).toList();
-  final mySections = mySubjects.map((s) => s.section).toSet().toList()..sort();
+  final subjects = await ref.watch(timetableRepoProvider).allSubjects();
+  final mySubjects = subjects.where((s) => s.teacherId == user.id).toList();
+  final sections = mySubjects.map((s) => s.section).toSet().toList()..sort();
 
-  return (subjects: mySubjects, sections: mySections);
+  return (subjects: mySubjects, sections: sections);
 });
 
 final adminProfileStatsProvider = FutureProvider.autoDispose((ref) async {
+  final db = FirebaseFirestore.instance;
+
+  // PERFORMANCE FIX: Use Server-Side Aggregation (count) instead of downloading entire collections
   final results = await Future.wait([
-    ref.watch(authRepoProvider).allUsers(),
-    ref.watch(timetableRepoProvider).allSubjects(),
-    ref.watch(attendanceRepoProvider).allRecords(),
+    db.collection('users').count().get(),
+    db.collection('subjects').count().get(),
+    db.collection('attendance').count().get(),
   ]);
 
-  final userCount = (results[0] as List).length;
-  final subjectCount = (results[1] as List).length;
-  final recordCount = (results[2] as List).length;
-
-  return (users: userCount, subjects: subjectCount, records: recordCount);
+  return (
+  users: results[0].count ?? 0,
+  subjects: results[1].count ?? 0,
+  records: results[2].count ?? 0,
+  );
 });
 
-// --- MAIN PROFILE PAGE WIDGET ---
+// -----------------------------------------------------------------------------
+// MAIN PAGE
+// -----------------------------------------------------------------------------
 
 class MyProfilePage extends ConsumerWidget {
   const MyProfilePage({super.key});
@@ -71,12 +77,14 @@ class MyProfilePage extends ConsumerWidget {
       ),
       body: userAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => AsyncErrorWidget(
-            message: err.toString(),
-            onRetry: () => ref.invalidate(authStateProvider)
+        error: (e, _) => AsyncErrorWidget(
+          message: e.toString(),
+          onRetry: () => ref.invalidate(authStateProvider),
         ),
         data: (user) {
-          if (user == null) return const Center(child: Text('User not found'));
+          if (user == null) {
+            return const Center(child: Text('User not found'));
+          }
 
           return switch (user.role) {
             UserRole.student => _StudentProfileView(user: user),
@@ -88,6 +96,10 @@ class MyProfilePage extends ConsumerWidget {
     );
   }
 }
+
+// -----------------------------------------------------------------------------
+// STUDENT PROFILE
+// -----------------------------------------------------------------------------
 
 class _StudentProfileView extends ConsumerWidget {
   final UserAccount user;
@@ -107,22 +119,44 @@ class _StudentProfileView extends ConsumerWidget {
           _SettingsGroupCard(
             title: 'Academic Details',
             children: [
-              _InfoTile(icon: Icons.badge_outlined, title: 'College Roll No', value: user.collegeRollNo ?? '—'),
-              _InfoTile(icon: Icons.confirmation_number_outlined, title: 'Exam Roll No', value: user.examRollNo ?? '—'),
+              _InfoTile(
+                icon: Icons.badge,
+                title: 'College Roll',
+                value: user.collegeRollNo ?? '—',
+              ),
+              _InfoTile(
+                icon: Icons.confirmation_number,
+                title: 'Exam Roll',
+                value: user.examRollNo ?? '—',
+              ),
               if (user.section?.isNotEmpty ?? false)
-                _InfoTile(icon: Icons.class_outlined, title: 'Section', value: user.section!),
-              _InfoTile(icon: Icons.phone_outlined, title: 'Phone', value: user.phone),
-              _InfoTile(icon: Icons.email_outlined, title: 'Email', value: user.email ?? '—'),
+                _InfoTile(
+                  icon: Icons.class_,
+                  title: 'Section',
+                  value: user.section!,
+                ),
+              _InfoTile(
+                icon: Icons.phone,
+                title: 'Phone',
+                value: user.phone,
+              ),
+              _InfoTile(
+                icon: Icons.email,
+                title: 'Email',
+                value: user.email ?? '—',
+              ),
             ],
           ),
           const SizedBox(height: 16),
           _CommonSettingsSection(user: user),
-          const SizedBox(height: 32),
         ],
       ),
     );
   }
 }
+// -----------------------------------------------------------------------------
+// TEACHER PROFILE
+// -----------------------------------------------------------------------------
 
 class _TeacherProfileView extends ConsumerWidget {
   final UserAccount user;
@@ -130,13 +164,11 @@ class _TeacherProfileView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    Future<void> refreshData() async {
-      ref.invalidate(teacherProfileSubjectsProvider);
-      ref.invalidate(authStateProvider);
-    }
-
     return RefreshIndicator(
-      onRefresh: refreshData,
+      onRefresh: () async {
+        ref.invalidate(teacherProfileSubjectsProvider);
+        ref.invalidate(authStateProvider);
+      },
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -147,20 +179,31 @@ class _TeacherProfileView extends ConsumerWidget {
           _SubjectsSummaryCard(),
           const SizedBox(height: 16),
           _SettingsGroupCard(
-            title: 'Contact Details',
+            title: 'Contact',
             children: [
-              _InfoTile(icon: Icons.phone_outlined, title: 'Phone', value: user.phone),
-              _InfoTile(icon: Icons.email_outlined, title: 'Email', value: user.email ?? '—'),
+              _InfoTile(
+                icon: Icons.phone,
+                title: 'Phone',
+                value: user.phone,
+              ),
+              _InfoTile(
+                icon: Icons.email,
+                title: 'Email',
+                value: user.email ?? '—',
+              ),
             ],
           ),
           const SizedBox(height: 16),
           _CommonSettingsSection(user: user),
-          const SizedBox(height: 32),
         ],
       ),
     );
   }
 }
+
+// -----------------------------------------------------------------------------
+// ADMIN PROFILE
+// -----------------------------------------------------------------------------
 
 class _AdminProfileView extends ConsumerWidget {
   final UserAccount user;
@@ -178,38 +221,98 @@ class _AdminProfileView extends ConsumerWidget {
           _AppSummaryCard(),
           const SizedBox(height: 16),
           _SettingsGroupCard(
-            title: 'My Details',
+            title: 'Contact',
             children: [
-              _InfoTile(icon: Icons.phone_outlined, title: 'Phone', value: user.phone),
-              _InfoTile(icon: Icons.email_outlined, title: 'Email', value: user.email ?? '—'),
+              _InfoTile(
+                icon: Icons.phone,
+                title: 'Phone',
+                value: user.phone,
+              ),
+              _InfoTile(
+                icon: Icons.email,
+                title: 'Email',
+                value: user.email ?? '—',
+              ),
             ],
           ),
           const SizedBox(height: 16),
           _CommonSettingsSection(user: user),
-          const SizedBox(height: 32),
         ],
       ),
     );
   }
 }
 
-// --- CARDS & WIDGETS ---
+// -----------------------------------------------------------------------------
+// PROFILE HEADER (COMMON)
+// -----------------------------------------------------------------------------
+
+class _ProfileHeader extends StatelessWidget {
+  final UserAccount user;
+  const _ProfileHeader({required this.user});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+
+    return Column(
+      children: [
+        CircleAvatar(
+          radius: 48,
+          backgroundColor: color,
+          child: Text(
+            user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onPrimary,
+              fontSize: 40,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          user.name,
+          style: Theme.of(context)
+              .textTheme
+              .headlineSmall
+              ?.copyWith(fontWeight: FontWeight.bold),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 8),
+        Chip(
+          label: Text(user.role.label.toUpperCase()),
+          labelStyle: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: Theme.of(context).colorScheme.onSecondaryContainer,
+          ),
+          backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+          side: BorderSide.none,
+        ),
+      ],
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// ATTENDANCE SUMMARY (STUDENT)
+// -----------------------------------------------------------------------------
 
 class _AttendanceSummaryCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final statsAsync = ref.watch(studentProfileStatsProvider);
+    final asyncStats = ref.watch(studentProfileStatsProvider);
 
     return _SettingsGroupCard(
       title: 'Attendance Overview',
       children: [
-        statsAsync.when(
+        asyncStats.when(
           loading: () => const Padding(
-            padding: EdgeInsets.all(24.0),
+            padding: EdgeInsets.all(24),
             child: Center(child: CircularProgressIndicator()),
           ),
-          error: (err, _) => AsyncErrorWidget(
-            message: err.toString(),
+          error: (e, _) => AsyncErrorWidget(
+            message: e.toString(),
             onRetry: () => ref.invalidate(studentProfileStatsProvider),
           ),
           data: (stats) {
@@ -218,7 +321,7 @@ class _AttendanceSummaryCard extends ConsumerWidget {
                 : (stats.pct < 85 ? Colors.orange : Colors.green);
 
             return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8.0),
+              padding: const EdgeInsets.symmetric(vertical: 16),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
@@ -245,6 +348,9 @@ class _AttendanceSummaryCard extends ConsumerWidget {
     );
   }
 }
+// -----------------------------------------------------------------------------
+// TEACHER SUBJECT SUMMARY
+// -----------------------------------------------------------------------------
 
 class _SubjectsSummaryCard extends ConsumerWidget {
   @override
@@ -256,50 +362,48 @@ class _SubjectsSummaryCard extends ConsumerWidget {
       children: [
         asyncData.when(
           loading: () => const Padding(
-            padding: EdgeInsets.all(24.0),
+            padding: EdgeInsets.all(24),
             child: Center(child: CircularProgressIndicator()),
           ),
-          error: (err, _) => AsyncErrorWidget(
-            message: err.toString(),
+          error: (e, _) => AsyncErrorWidget(
+            message: e.toString(),
             onRetry: () => ref.invalidate(teacherProfileSubjectsProvider),
           ),
           data: (data) {
             if (data.subjects.isEmpty) {
               return const Padding(
-                padding: EdgeInsets.all(16.0),
+                padding: EdgeInsets.all(16),
                 child: Text('No subjects assigned yet.'),
               );
             }
 
             return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (data.sections.isNotEmpty) ...[
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Text('My Sections', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
-                  ),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
                     child: Wrap(
                       spacing: 8,
-                      children: data.sections.map((s) => Chip(
-                        label: Text(s),
-                        visualDensity: VisualDensity.compact,
-                        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                        side: BorderSide.none,
-                      )).toList(),
+                      children: data.sections
+                          .map((s) => Chip(label: Text(s)))
+                          .toList(),
                     ),
                   ),
-                  const Divider(),
+                  const Divider(height: 1),
                 ],
-                ...data.subjects.map((s) => ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.book_outlined),
-                  title: Text(s.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text(s.code),
-                  trailing: Text('Sec: ${s.section}'),
-                )),
+                ...data.subjects.map(
+                      (s) => ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.book_outlined),
+                    title: Text(
+                      s.name,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(s.code),
+                    trailing: Text('Sec: ${s.section}'),
+                  ),
+                ),
               ],
             );
           },
@@ -308,6 +412,10 @@ class _SubjectsSummaryCard extends ConsumerWidget {
     );
   }
 }
+
+// -----------------------------------------------------------------------------
+// ADMIN APP SUMMARY
+// -----------------------------------------------------------------------------
 
 class _AppSummaryCard extends ConsumerWidget {
   @override
@@ -318,29 +426,36 @@ class _AppSummaryCard extends ConsumerWidget {
       title: 'System Overview',
       children: [
         asyncData.when(
-          loading: () => const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
-          error: (err, _) => AsyncErrorWidget(
-            message: err.toString(),
+          loading: () => const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+          error: (e, _) => AsyncErrorWidget(
+            message: e.toString(),
             onRetry: () => ref.invalidate(adminProfileStatsProvider),
           ),
-          data: (data) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _StatItem(value: data.users.toString(), label: 'Users'),
-                  _StatItem(value: data.subjects.toString(), label: 'Subjects'),
-                  _StatItem(value: data.records.toString(), label: 'Records'),
-                ],
-              ),
-            );
-          },
+          data: (data) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _StatItem(value: data.users.toString(), label: 'Users'),
+                _StatItem(
+                    value: data.subjects.toString(), label: 'Subjects'),
+                _StatItem(
+                    value: data.records.toString(), label: 'Records'),
+              ],
+            ),
+          ),
         ),
       ],
     );
   }
 }
+
+// -----------------------------------------------------------------------------
+// QUALIFICATIONS (TEACHER)
+// -----------------------------------------------------------------------------
 
 class _QualificationsCard extends ConsumerWidget {
   final UserAccount user;
@@ -353,14 +468,14 @@ class _QualificationsCard extends ConsumerWidget {
       children: [
         if (user.qualifications.isEmpty)
           const Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Center(child: Text('No qualifications added yet.', style: TextStyle(color: Colors.grey))),
+            padding: EdgeInsets.all(16),
+            child: Text('No qualifications added yet.'),
           )
         else
           ...user.qualifications.map(
                 (q) => ListTile(
               dense: true,
-              leading: const Icon(Icons.school, size: 20),
+              leading: const Icon(Icons.school),
               title: Text(q),
             ),
           ),
@@ -368,62 +483,61 @@ class _QualificationsCard extends ConsumerWidget {
         Align(
           alignment: Alignment.centerRight,
           child: TextButton.icon(
-            icon: const Icon(Icons.edit_outlined, size: 18),
+            icon: const Icon(Icons.edit),
             label: const Text('Manage'),
-            onPressed: () => _showEditQualificationsDialog(context, ref, user),
+            onPressed: () => showDialog(
+              context: context,
+              builder: (_) => _EditQualificationsDialog(user: user),
+            ),
           ),
-        )
+        ),
       ],
     );
   }
-
-  Future<void> _showEditQualificationsDialog(BuildContext context, WidgetRef ref, UserAccount user) async {
-    await showDialog(
-      context: context,
-      builder: (context) => _EditQualificationsDialog(user: user),
-    );
-  }
 }
+
+// -----------------------------------------------------------------------------
+// EDIT QUALIFICATIONS DIALOG  ✅ FIXES YOUR ERROR
+// -----------------------------------------------------------------------------
 
 class _EditQualificationsDialog extends ConsumerStatefulWidget {
   final UserAccount user;
   const _EditQualificationsDialog({required this.user});
 
   @override
-  ConsumerState<_EditQualificationsDialog> createState() => _EditQualificationsDialogState();
+  ConsumerState<_EditQualificationsDialog> createState() =>
+      _EditQualificationsDialogState();
 }
 
-class _EditQualificationsDialogState extends ConsumerState<_EditQualificationsDialog> {
-  late List<String> _qualifications;
-  final TextEditingController _addCtrl = TextEditingController();
+class _EditQualificationsDialogState
+    extends ConsumerState<_EditQualificationsDialog> {
+  late List<String> _quals;
+  final TextEditingController _ctrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _qualifications = List.from(widget.user.qualifications);
+    _quals = List.from(widget.user.qualifications);
   }
 
   void _add() {
-    final text = _addCtrl.text.trim();
+    final text = _ctrl.text.trim();
     if (text.isNotEmpty) {
       setState(() {
-        _qualifications.add(text);
-        _addCtrl.clear();
+        _quals.add(text);
+        _ctrl.clear();
       });
     }
   }
 
   void _remove(int index) {
-    setState(() {
-      _qualifications.removeAt(index);
-    });
+    setState(() => _quals.removeAt(index));
   }
 
   Future<void> _save() async {
-    final auth = ref.read(authRepoProvider);
     try {
-      await auth.updateUser(
-        widget.user.copyWith(qualifications: _qualifications),
+      await ref.read(authRepoProvider).updateUser(
+        widget.user.copyWith(qualifications: _quals),
       );
       ref.invalidate(authStateProvider);
       if (mounted) Navigator.pop(context);
@@ -444,45 +558,30 @@ class _EditQualificationsDialogState extends ConsumerState<_EditQualificationsDi
         width: double.maxFinite,
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (_qualifications.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16.0),
-                child: Text('Add your degrees (e.g. PhD, M.Tech)', style: TextStyle(color: Colors.grey), textAlign: TextAlign.center),
-              ),
-
-            if (_qualifications.isNotEmpty)
+            if (_quals.isNotEmpty)
               Flexible(
                 child: ListView.separated(
                   shrinkWrap: true,
-                  itemCount: _qualifications.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    return ListTile(
-                      dense: true,
-                      title: Text(_qualifications[index]),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.close, color: Colors.red, size: 18),
-                        onPressed: () => _remove(index),
-                      ),
-                    );
-                  },
+                  itemCount: _quals.length,
+                  separatorBuilder: (_, __) =>
+                  const Divider(height: 1),
+                  itemBuilder: (_, i) => ListTile(
+                    title: Text(_quals[i]),
+                    trailing: IconButton(
+                      icon:
+                      const Icon(Icons.close, color: Colors.red),
+                      onPressed: () => _remove(i),
+                    ),
+                  ),
                 ),
               ),
-
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             TextField(
-              controller: _addCtrl,
-              decoration: InputDecoration(
-                labelText: 'Add Qualification',
-                isDense: true,
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.add_circle),
-                  color: Theme.of(context).colorScheme.primary,
-                  onPressed: _add,
-                ),
-                border: const OutlineInputBorder(),
+              controller: _ctrl,
+              decoration: const InputDecoration(
+                labelText: 'Add qualification',
+                border: OutlineInputBorder(),
               ),
               onSubmitted: (_) => _add(),
             ),
@@ -491,60 +590,16 @@ class _EditQualificationsDialogState extends ConsumerState<_EditQualificationsDi
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: _save,
-          child: const Text('Save'),
-        ),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel')),
+        FilledButton(onPressed: _save, child: const Text('Save')),
       ],
     );
   }
 }
-
-class _ProfileHeader extends StatelessWidget {
-  final UserAccount user;
-  const _ProfileHeader({required this.user});
-
-  @override
-  Widget build(BuildContext context) {
-    final roleColor = Theme.of(context).colorScheme.primary;
-
-    return Column(
-      children: [
-        CircleAvatar(
-          radius: 48,
-          backgroundColor: roleColor,
-          child: Text(
-            user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
-            style: TextStyle(
-                color: Theme.of(context).colorScheme.onPrimary,
-                fontSize: 40,
-                fontWeight: FontWeight.w800),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          user.name,
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 8),
-        Chip(
-          label: Text(user.role.label.toUpperCase()),
-          labelStyle: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).colorScheme.onSecondaryContainer
-          ),
-          backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
-          side: BorderSide.none,
-        ),
-      ],
-    );
-  }
-}
+// -----------------------------------------------------------------------------
+// SETTINGS + ACCOUNT ACTIONS
+// -----------------------------------------------------------------------------
 
 class _CommonSettingsSection extends ConsumerWidget {
   final UserAccount user;
@@ -558,50 +613,92 @@ class _CommonSettingsSection extends ConsumerWidget {
         ListTile(
           leading: const Icon(Icons.lock_outline),
           title: const Text('Change Password'),
-          trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
-          onTap: () => _showChangePasswordDialog(context, ref, user.email!),
+          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+          onTap: () => _showChangePasswordDialog(
+            context,
+            ref,
+            user.email!,
+          ),
         ),
         const Divider(height: 1),
         ListTile(
-          leading: Icon(Icons.logout, color: Theme.of(context).colorScheme.error),
-          title: Text('Logout', style: TextStyle(color: Theme.of(context).colorScheme.error, fontWeight: FontWeight.bold)),
+          leading: Icon(
+            Icons.logout,
+            color: Theme.of(context).colorScheme.error,
+          ),
+          title: Text(
+            'Logout',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.error,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           onTap: () async {
             await ref.read(authRepoProvider).logout();
           },
         ),
         const Divider(height: 1),
         ListTile(
-          leading: Icon(Icons.delete_forever, color: Theme.of(context).colorScheme.error),
-          title: Text('Delete Account', style: TextStyle(color: Theme.of(context).colorScheme.error, fontWeight: FontWeight.bold)),
-          subtitle: const Text('Permanently delete your data', style: TextStyle(fontSize: 11)),
-          onTap: () => _confirmDelete(context, ref),
+          leading: Icon(
+            Icons.delete_forever,
+            color: Theme.of(context).colorScheme.error,
+          ),
+          title: Text(
+            'Delete Account',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.error,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          onTap: () => _confirmDelete(context, ref, user),
         ),
       ],
     );
   }
 
-  Future<void> _showChangePasswordDialog(BuildContext context, WidgetRef ref, String email) async {
+  // ---------------------------------------------------------------------------
+  // CHANGE PASSWORD
+  // ---------------------------------------------------------------------------
+
+  Future<void> _showChangePasswordDialog(
+      BuildContext context,
+      WidgetRef ref,
+      String email,
+      ) async {
     await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (_) => AlertDialog(
         title: const Text('Change Password'),
-        content: Text('We will send a password reset link to:\n\n$email'),
+        content: Text('Send password reset link to:\n\n$email'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: () async {
               try {
-                await ref.read(authRepoProvider).requestPasswordReset(email);
+                await ref
+                    .read(authRepoProvider)
+                    .requestPasswordReset(email);
+
                 if (!context.mounted) return;
-                Navigator.pop(ctx);
+
+                Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Reset link sent to your email.')),
+                  const SnackBar(
+                    content: Text('Password reset link sent'),
+                  ),
                 );
               } catch (e) {
                 if (!context.mounted) return;
-                final message = FirebaseErrorParser.getMessage(e);
+
+                final msg = FirebaseErrorParser.getMessage(e);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(message), backgroundColor: Colors.red),
+                  SnackBar(
+                    content: Text(msg),
+                    backgroundColor: Colors.red,
+                  ),
                 );
               }
             },
@@ -612,18 +709,31 @@ class _CommonSettingsSection extends ConsumerWidget {
     );
   }
 
-  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
+  // ---------------------------------------------------------------------------
+  // DELETE ACCOUNT
+  // ---------------------------------------------------------------------------
+
+  Future<void> _confirmDelete(
+      BuildContext context,
+      WidgetRef ref,
+      UserAccount user,
+      ) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (_) => AlertDialog(
         title: const Text('Delete Account?'),
-        content: const Text('This will permanently delete your profile and cannot be undone. Are you sure?'),
+        content: const Text(
+          'This action is permanent and cannot be undone.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete Forever'),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
           ),
         ],
       ),
@@ -631,11 +741,15 @@ class _CommonSettingsSection extends ConsumerWidget {
 
     if (confirmed == true) {
       try {
-        await ref.read(authRepoProvider).deleteAccount();
+        await ref.read(authRepoProvider).deleteAccount(user.id);
+        await ref.read(authRepoProvider).logout();
       } catch (e) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+            SnackBar(
+              content: Text('Error: $e'),
+              backgroundColor: Colors.red,
+            ),
           );
         }
       }
@@ -643,10 +757,17 @@ class _CommonSettingsSection extends ConsumerWidget {
   }
 }
 
+// -----------------------------------------------------------------------------
+// SHARED UI WIDGETS
+// -----------------------------------------------------------------------------
+
 class _SettingsGroupCard extends StatelessWidget {
   final String title;
   final List<Widget> children;
-  const _SettingsGroupCard({required this.title, required this.children});
+  const _SettingsGroupCard({
+    required this.title,
+    required this.children,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -655,21 +776,25 @@ class _SettingsGroupCard extends StatelessWidget {
         color: Theme.of(context).cardTheme.color,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4))
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Text(
               title.toUpperCase(),
               style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
-                  color: Theme.of(context).colorScheme.primary
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.primary,
               ),
             ),
           ),
@@ -685,20 +810,23 @@ class _InfoTile extends StatelessWidget {
   final IconData icon;
   final String title;
   final String value;
-  const _InfoTile({required this.icon, required this.title, required this.value});
+  const _InfoTile({
+    required this.icon,
+    required this.title,
+    required this.value,
+  });
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: Icon(icon, size: 22, color: Colors.grey[600]),
-      title: Text(title, style: const TextStyle(fontSize: 14, color: Colors.grey)),
+      leading: Icon(icon, color: Colors.grey[600]),
+      title: Text(
+        title,
+        style: const TextStyle(color: Colors.grey),
+      ),
       trailing: Text(
-          value,
-          style: TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 15,
-              color: Theme.of(context).colorScheme.onSurface
-          )
+        value,
+        style: const TextStyle(fontWeight: FontWeight.w600),
       ),
     );
   }
@@ -709,28 +837,29 @@ class _StatItem extends StatelessWidget {
   final String label;
   final Color? color;
   final bool large;
-  const _StatItem({required this.value, required this.label, this.color, this.large = false});
+  const _StatItem({
+    required this.value,
+    required this.label,
+    this.color,
+    this.large = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Column(
-      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           value,
           style: TextStyle(
-            fontSize: large ? 32 : 24,
-            fontWeight: FontWeight.w900,
-            color: color ?? Theme.of(context).colorScheme.onSurface,
+            fontSize: large ? 32 : 22,
+            fontWeight: FontWeight.bold,
+            color:
+            color ?? Theme.of(context).colorScheme.onSurface,
           ),
         ),
         Text(
           label,
-          style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
-              fontWeight: FontWeight.w500
-          ),
+          style: TextStyle(color: Colors.grey[600]),
         ),
       ],
     );

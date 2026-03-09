@@ -1,6 +1,4 @@
 // lib/core/models/subject.dart
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 class Subject {
   final String id;
   final String code;
@@ -8,7 +6,7 @@ class Subject {
   final String department;
   final String semester;
   final String section;
-  final String teacherId;
+  final String teacherId; // The lead faculty
 
   const Subject({
     required this.id,
@@ -20,7 +18,27 @@ class Subject {
     required this.teacherId,
   });
 
-  String get displayName => '$code - $name ($section)';
+  Map<String, dynamic> toMap() => {
+    'code': code,
+    'name': name,
+    'department': department,
+    'semester': semester,
+    'section': section,
+    'teacherId': teacherId,
+  };
+
+  // FIX: Accept ID separately
+  factory Subject.fromMap(String id, Map<String, dynamic> map) {
+    return Subject(
+      id: id,
+      code: map['code'] ?? '',
+      name: map['name'] ?? '',
+      department: map['department'] ?? '',
+      semester: map['semester'] ?? '',
+      section: map['section'] ?? '',
+      teacherId: map['teacherId'] ?? '',
+    );
+  }
 
   Subject copyWith({
     String? id,
@@ -40,31 +58,5 @@ class Subject {
       section: section ?? this.section,
       teacherId: teacherId ?? this.teacherId,
     );
-  }
-
-  Map<String, dynamic> toMap() => {
-    'code': code,
-    'name': name,
-    'department': department,
-    'semester': semester,
-    'section': section,
-    'teacherId': teacherId,
-  };
-
-  factory Subject.fromMap(String id, Map<String, dynamic>? map) {
-    final m = map ?? {};
-    return Subject(
-      id: id,
-      code: m['code'] ?? '',
-      name: m['name'] ?? '',
-      department: m['department'] ?? '',
-      semester: m['semester'] ?? '',
-      section: m['section'] ?? '',
-      teacherId: m['teacherId'] ?? '',
-    );
-  }
-
-  factory Subject.fromDoc(DocumentSnapshot doc) {
-    return Subject.fromMap(doc.id, doc.data() as Map<String, dynamic>?);
   }
 }

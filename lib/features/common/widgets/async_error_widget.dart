@@ -1,4 +1,3 @@
-// lib/features/common/widgets/async_error_widget.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -14,8 +13,9 @@ class AsyncErrorWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Center(
-      // Prevent overflow with scrollable container
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Column(
@@ -23,16 +23,16 @@ class AsyncErrorWidget extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.cloud_off_rounded, // Descriptive icon for connectivity errors
+              Icons.error_outline_rounded,
               size: 64,
-              color: Theme.of(context).colorScheme.error,
+              color: theme.colorScheme.error,
             ),
             const SizedBox(height: 16),
             Text(
               'Oops! Something went wrong',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.onSurface,
+                color: theme.colorScheme.onSurface,
               ),
               textAlign: TextAlign.center,
             ),
@@ -40,8 +40,8 @@ class AsyncErrorWidget extends StatelessWidget {
             Text(
               _cleanMessage(message),
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 24),
@@ -50,16 +50,20 @@ class AsyncErrorWidget extends StatelessWidget {
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
               style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
               ),
             ),
             const SizedBox(height: 12),
-            // Copy error details button for debugging help
             TextButton.icon(
               onPressed: () {
-                Clipboard.setData(ClipboardData(text: _cleanMessage(message)));
+                Clipboard.setData(
+                  ClipboardData(text: _cleanMessage(message)),
+                );
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Error copied to clipboard')),
+                  const SnackBar(
+                    content: Text('Error details copied to clipboard'),
+                  ),
                 );
               },
               icon: const Icon(Icons.copy, size: 18),
@@ -71,11 +75,23 @@ class AsyncErrorWidget extends StatelessWidget {
     );
   }
 
-  // Makes error messages more human-readable and user-helpful
+  // ---------------------------------------------------------------------------
+  // ERROR MESSAGE CLEANUP
+  // ---------------------------------------------------------------------------
+
   String _cleanMessage(String raw) {
-    if (raw.contains('SocketException') || raw.contains('Network is unreachable')) {
-      return 'Please check your internet connection.';
+    final lower = raw.toLowerCase();
+
+    if (lower.contains('socketexception') ||
+        lower.contains('network is unreachable') ||
+        lower.contains('failed host lookup')) {
+      return 'Please check your internet connection and try again.';
     }
-    return raw.replaceAll('Exception: ', '').trim();
+
+    if (lower.contains('permission')) {
+      return 'You do not have permission to perform this action.';
+    }
+
+    return raw.replaceAll('Exception:', '').trim();
   }
 }

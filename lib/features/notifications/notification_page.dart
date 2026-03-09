@@ -7,197 +7,125 @@ import '../common/widgets/profile_avatar_action.dart';
 import '../common/widgets/app_drawer.dart';
 import '../../core/models/notification.dart';
 import '../../main.dart';
-import '../../data/notification_repository.dart';
+// import '../../data/notification_repository.dart'; // Not strictly needed if using main.dart provider, but kept for type safety if needed
 
-class NotificationsPage extends ConsumerStatefulWidget {
+class NotificationsPage extends ConsumerWidget {
   const NotificationsPage({super.key});
 
   @override
-  ConsumerState<NotificationsPage> createState() => _NotificationsPageState();
-}
-
-class _NotificationsPageState extends ConsumerState<NotificationsPage> {
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authStateProvider);
 
-    return authState.when(
-      loading: () =>
-      const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
-      data: (user) {
-        if (user == null) {
-          return const Scaffold(body: Center(child: Text('Please login')));
-        }
-
-        final repo = ref.watch(notifRepoProvider);
-        final items = repo.forUser(user.id);
-        final hasUnread = items.any((n) => !n.read);
-        final fmt = DateFormat('MMM d, h:mm a');
-
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Notifications'),
-            actions: [
-              if (items.isNotEmpty)
-                IconButton(
-                  tooltip: 'Clear All',
-                  icon: const Icon(Icons.delete_sweep_outlined),
-                  onPressed: () => _confirmClearAll(context, repo, user.id),
-                ),
-              IconButton(
-                icon: Icon(
-                  hasUnread
-                      ? Icons.mark_email_read
-                      : Icons.mark_email_read_outlined,
-                  color: hasUnread
-                      ? Theme.of(context).colorScheme.primary
-                      : null,
-                ),
-                tooltip: 'Mark all read',
-                onPressed: hasUnread
-                    ? () async {
-                  final messenger = ScaffoldMessenger.of(context);
-
-                  await repo.markAllRead(user.id);
-
-                  if (!mounted) return;
-
-                  messenger.showSnackBar(
-                    const SnackBar(
-                        content: Text('Marked all as read')),
-                  );
-
-                  setState(() {});
-                }
-                    : null,
-              ),
-              const SizedBox(width: 8),
-              const ProfileAvatarAction(),
-              const SizedBox(width: 12),
-            ],
-          ),
-          drawer: const AppDrawer(),
-          body: items.isEmpty
-              ? Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.notifications_off_outlined,
-                    size: 64,
-                    color: Colors.grey.withValues(alpha: 0.4)), // FIXED
-                const SizedBox(height: 16),
-                Text('No notifications',
-                    style:
-                    TextStyle(color: Colors.grey.withValues(alpha: 0.6))),
-              ],
-            ),
-          )
-              : RefreshIndicator(
-            onRefresh: () async {
-              setState(() {});
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Notifications'),
+        actions: [
+          IconButton(
+            tooltip: 'Clear All',
+            icon: const Icon(Icons.delete_sweep),
+            onPressed: () {
+              authState.whenData((user) {
+                if (user != null) _confirmClear(context, ref, user.id);
+              });
             },
-            child: ListView.separated(
-              physics: const AlwaysScrollableScrollPhysics(),
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (_, i) {
-                final n = items[i];
-                return Dismissible(
-                  key: Key(n.id),
-                  direction: DismissDirection.endToStart,
-                  background: Container(
-                    color: Colors.red,
-                    alignment: Alignment.centerRight,
-                    padding: const EdgeInsets.only(right: 20),
-                    child: const Icon(Icons.delete, color: Colors.white),
-                  ),
-                  onDismissed: (_) async {
-                    await repo.delete(n.id);
-                    if (mounted) setState(() {});
-                  },
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                    tileColor: n.read
-                        ? null
-                        : Theme.of(context)
-                        .colorScheme
-                        .primary
-                        .withValues(alpha: 0.05), // FIXED
-                    leading: CircleAvatar(
-                      backgroundColor: n.read
-                          ? Colors.grey.withValues(alpha: 0.15)
-                          : Theme.of(context)
-                          .colorScheme
-                          .primary
-                          .withValues(alpha: 0.15), // FIXED
-                      child: Icon(
-                        _getIconForType(n.type),
-                        color: n.read
-                            ? Colors.grey
-                            : Theme.of(context)
-                            .colorScheme
-                            .primary,
-                        size: 20,
-                      ),
-                    ),
-                    title: Text(
-                      n.title,
-                      style: TextStyle(
-                        fontWeight: n.read
-                            ? FontWeight.normal
-                            : FontWeight.bold,
-                        fontSize: 15,
-                      ),
-                    ),
-                    subtitle: Column(
-                      crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 4),
-                        Text(n.body,
-                            style: const TextStyle(height: 1.3)),
-                        const SizedBox(height: 6),
-                        Text(
-                          fmt.format(n.createdAt.toLocal()),
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(fontSize: 11),
-                        ),
-                      ],
-                    ),
-                    onTap: () async {
-                      if (!n.read) {
-                        await repo.markRead(n.id);
-                        if (mounted) setState(() {});
-                      }
-                    },
+          ),
+          const ProfileAvatarAction(),
+        ],
+      ),
+      drawer: const AppDrawer(),
+      body: authState.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(child: Text('Error: $e')),
+        data: (user) {
+          if (user == null) return const Center(child: Text('Please login'));
+
+          return StreamBuilder<List<AppNotification>>(
+            // Now this uses the provider from main.dart without conflict
+            stream: ref.watch(notifRepoProvider).listenForUser(user.id),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Center(child: Text('Error loading notifications: ${snapshot.error}'));
+              }
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final items = snapshot.data ?? [];
+
+              if (items.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.notifications_off_outlined, size: 64, color: Colors.grey[400]),
+                      const SizedBox(height: 16),
+                      Text('No notifications yet', style: TextStyle(color: Colors.grey[600])),
+                    ],
                   ),
                 );
-              },
-            ),
-          ),
-        );
-      },
+              }
+
+              return ListView.separated(
+                itemCount: items.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final item = items[index];
+                  return Dismissible(
+                    key: Key(item.id),
+                    background: Container(
+                        color: Colors.red,
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 20),
+                        child: const Icon(Icons.delete, color: Colors.white)),
+                    direction: DismissDirection.endToStart,
+                    onDismissed: (_) {
+                      // Optionally implement delete single item
+                    },
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: item.read ? Colors.grey[300] : Theme.of(context).colorScheme.primaryContainer,
+                        child: Icon(_getIconForType(item.type),
+                            color: item.read ? Colors.grey : Theme.of(context).colorScheme.primary),
+                      ),
+                      title: Text(
+                        item.title,
+                        style: TextStyle(fontWeight: item.read ? FontWeight.normal : FontWeight.bold),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(item.body),
+                          const SizedBox(height: 4),
+                          Text(
+                            DateFormat('MMM d, h:mm a').format(item.createdAt),
+                            style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                          ),
+                        ],
+                      ),
+                      onTap: () {
+                        if (!item.read) {
+                          ref.read(notifRepoProvider).markRead(item.id);
+                        }
+                      },
+                    ),
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
     );
   }
 
-  Future<void> _confirmClearAll(
-      BuildContext context, NotificationRepository repo, String userId) async {
-    final messenger = ScaffoldMessenger.of(context);
-
+  Future<void> _confirmClear(BuildContext context, WidgetRef ref, String userId) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Clear All'),
-        content: const Text(
-            'Delete all notifications? This cannot be undone.'),
+        content: const Text('Delete all notifications? This cannot be undone.'),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(ctx, true),
@@ -208,15 +136,10 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
     );
 
     if (confirm == true) {
-      await repo.clearForUser(userId);
-
-      if (!mounted) return;
-
-      messenger.showSnackBar(
-        const SnackBar(content: Text('All notifications cleared')),
-      );
-
-      setState(() {});
+      await ref.read(notifRepoProvider).clearForUser(userId);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notifications cleared')));
+      }
     }
   }
 
@@ -231,7 +154,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
       case NotificationType.remarkSaved:
         return Icons.rate_review_outlined;
       case NotificationType.general:
-        return Icons.notifications; // DEFAULT REMOVED
+      return Icons.notifications;
     }
   }
 }

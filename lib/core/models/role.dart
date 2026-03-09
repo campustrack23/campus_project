@@ -1,37 +1,53 @@
 // lib/core/models/role.dart
 
-enum UserRole { student, teacher, admin }
+enum UserRole {
+  student,
+  teacher,
+  admin,
+}
 
 extension UserRoleX on UserRole {
-  /// Returns a human-readable label for UI display
-  String get label => switch (this) {
-    UserRole.student => 'Student',
-    UserRole.teacher => 'Teacher',
-    UserRole.admin => 'Admin',
-  };
+  /// Human-readable label for UI
+  String get label {
+    switch (this) {
+      case UserRole.student:
+        return 'Student';
+      case UserRole.teacher:
+        return 'Faculty';
+      case UserRole.admin:
+        return 'Administrator';
+    }
+  }
 
-  // ===== CONVENIENCE GETTERS =====
+  // ---------------------------------------------------------------------------
+  // Convenience Getters
+  // ---------------------------------------------------------------------------
+
   bool get isStudent => this == UserRole.student;
   bool get isTeacher => this == UserRole.teacher;
   bool get isAdmin => this == UserRole.admin;
 
-  // ===== SERIALIZATION =====
+  // ---------------------------------------------------------------------------
+  // Serialization Helpers
+  // ---------------------------------------------------------------------------
+
+  /// String key used for storage (Firestore, JSON, etc.)
   String get key => name;
 
-  /// A safe parser that defaults to [student] if input is invalid or null.
-  static UserRole fromKey(String? k) {
-    if (k == null) return UserRole.student;
+  /// Safe parser → defaults to `student`
+  static UserRole fromString(String? value) {
+    if (value == null) return UserRole.student;
     return UserRole.values.firstWhere(
-          (e) => e.name == k,
+          (e) => e.name == value,
       orElse: () => UserRole.student,
     );
   }
 
-  /// Returns null if the string doesn't match any UserRole
-  static UserRole? tryParse(String? k) {
-    if (k == null) return null;
+  /// Nullable parser → returns null if invalid
+  static UserRole? tryParse(String? value) {
+    if (value == null) return null;
     try {
-      return UserRole.values.byName(k);
+      return UserRole.values.byName(value);
     } catch (_) {
       return null;
     }

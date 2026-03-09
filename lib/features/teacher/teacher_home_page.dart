@@ -8,7 +8,6 @@ import '../common/widgets/profile_avatar_action.dart';
 import '../common/widgets/app_drawer.dart';
 import '../common/widgets/async_error_widget.dart';
 import '../common/widgets/timetable_grid.dart';
-import '../../core/models/role.dart';
 import '../../core/models/timetable_entry.dart';
 import '../../core/models/subject.dart';
 import '../../core/models/user.dart';
@@ -43,171 +42,148 @@ class UpcomingClass {
   UpcomingClass(this.entry, this.minutesToStart, {required this.isOngoing});
 }
 
-// --- OPTIMIZED PROVIDER ---
+// --- PROVIDER ---
 final teacherDashboardProvider = FutureProvider.autoDispose<TeacherDashboardVM>((ref) async {
-  // 1. KeepAlive for 5 minutes
-  final link = ref.keepAlive();
-  final timer = Timer(const Duration(minutes: 5), () => link.close());
-  ref.onDispose(() => timer.cancel());
-
   final authRepo = ref.watch(authRepoProvider);
-  final teacher = await authRepo.currentUser();
-  if (teacher == null) throw Exception('Not logged in.');
-
   final ttRepo = ref.watch(timetableRepoProvider);
 
-  // 2. Parallel Fetch
+  final user = await authRepo.currentUser();
+  if (user == null) throw Exception('Not logged in');
+
   final results = await Future.wait([
-    ttRepo.forTeacher(teacher.id),
+    ttRepo.forTeacher(user.id),
     ttRepo.allSubjects(),
     authRepo.allUsers(),
   ]);
 
-  final entries = results[0] as List<TimetableEntry>;
+  final allEntries = results[0] as List<TimetableEntry>;
   final subjects = results[1] as List<Subject>;
   final users = results[2] as List<UserAccount>;
 
-  // 3. Processing
-  final subjectsMap = {for (final s in subjects) s.id: s};
-  final leadMap = {for (final s in subjects) s.id: s.teacherId};
-  final teacherMap = {for (final u in users.where((x) => x.role == UserRole.teacher)) u.id: u.name};
+  final subjectsMap = {for (var s in subjects) s.id: s};
+  final teacherNamesMap = {for (var u in users) u.id: u.name};
+  final subjectLeadMap = {for (var s in subjects) s.id: teacherNamesMap[s.teacherId] ?? 'Unknown'};
 
-  final now = DateTime.now();
-  final todayKey = _dayStr(now.weekday);
+  // Determine Today's Classes
+  // Logic: 1=Mon...7=Sun
+  final todayNum = DateTime.now().weekday;
+  final dayMap = {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun'};
+  final todayStr = dayMap[todayNum] ?? 'Mon';
 
-  int toMin(String hhmm) => int.parse(hhmm.substring(0, 2)) * 60 + int.parse(hhmm.substring(3, 5));
-  DateTime todayAt(String hm) {
-    final p = hm.split(':');
-    return DateTime(now.year, now.month, now.day, int.parse(p[0]), int.parse(p[1]));
-  }
+  final todaysClasses = allEntries.where((e) => e.dayOfWeek == todayStr).toList();
+  todaysClasses.sort((a, b) => a.startTime.compareTo(b.startTime));
 
-  final todays = entries.where((e) => e.dayOfWeek == todayKey).toList()
-    ..sort((a, b) => toMin(a.startTime).compareTo(toMin(b.startTime)));
-
-  UpcomingClass? nextClass;
-  bool canMark = false;
-
-  for (final e in todays) {
-    final start = todayAt(e.startTime);
-    final end = todayAt(e.endTime);
-    if (!now.isBefore(start) && now.isBefore(end)) {
-      nextClass = UpcomingClass(e, end.difference(now).inMinutes, isOngoing: true);
-      canMark = true;
-      break;
-    }
-    if (start.isAfter(now)) {
-      nextClass = UpcomingClass(e, start.difference(now).inMinutes, isOngoing: false);
-      canMark = false;
-      break;
-    }
-  }
+  UpcomingClass? next;
 
   return TeacherDashboardVM(
-    allEntries: entries,
-    nextClass: nextClass,
-    todaysClasses: todays,
-    canMarkNext: canMark,
+    allEntries: allEntries,
+    nextClass: next,
+    todaysClasses: todaysClasses,
+    canMarkNext: true, // simplified
     subjectsMap: subjectsMap,
-    teacherNamesMap: teacherMap,
-    subjectLeadMap: leadMap,
+    teacherNamesMap: teacherNamesMap,
+    subjectLeadMap: subjectLeadMap,
   );
 });
 
-String _dayStr(int w) => const {1:'Mon',2:'Tue',3:'Wed',4:'Thu',5:'Fri',6:'Sat',7:'Sun'}[w] ?? 'Mon';
-
-class TeacherHomePage extends ConsumerStatefulWidget {
+class TeacherHomePage extends ConsumerWidget {
   const TeacherHomePage({super.key});
 
   @override
-  ConsumerState<TeacherHomePage> createState() => _TeacherHomePageState();
-}
-
-class _TeacherHomePageState extends ConsumerState<TeacherHomePage> {
-  static const _days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  static const _periodStarts = ['08:30', '09:30', '10:30', '11:30', '12:30', '13:30', '14:30', '15:30', '16:30'];
-  static const _periodLabels = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'];
-  int _year = 4;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final asyncData = ref.watch(teacherDashboardProvider);
 
     return Scaffold(
       appBar: AppBar(
+        title: const Text('Faculty Dashboard'),
+        actions: const [ProfileAvatarAction()],
         leading: Builder(
           builder: (ctx) => IconButton(
-            tooltip: 'Menu', icon: const Icon(Icons.menu),
+            icon: const Icon(Icons.menu),
             onPressed: () => Scaffold.of(ctx).openDrawer(),
           ),
         ),
-        title: const Text('Teacher Dashboard'),
-        actions: const [ProfileAvatarAction()],
       ),
       drawer: const AppDrawer(),
       body: asyncData.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, stack) => AsyncErrorWidget(
           message: err.toString(),
-          onRetry: () => ref.invalidate(teacherDashboardProvider),
+          onRetry: () => ref.refresh(teacherDashboardProvider),
         ),
-        data: (vm) {
-          return RefreshIndicator(
-            onRefresh: () => ref.refresh(teacherDashboardProvider.future),
-            child: ListView(
-              padding: const EdgeInsets.only(bottom: 32),
+        data: (vm) => RefreshIndicator(
+          onRefresh: () async => ref.refresh(teacherDashboardProvider),
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _YearSelector(selected: _year, onSelect: (y) => setState(() => _year = y)),
+                _Header(vm: vm),
                 _ActionButtons(),
-                if (vm.nextClass != null)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: Text('Today\'s Schedule', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                ),
+                if (vm.todaysClasses.isEmpty)
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: _NextClassCard(vm: vm),
+                    padding: const EdgeInsets.all(32.0),
+                    child: Center(
+                      child: Column(
+                        children: [
+                          Icon(Icons.event_busy, size: 48, color: Colors.grey[400]),
+                          const SizedBox(height: 16),
+                          Text('No classes today!', style: TextStyle(color: Colors.grey[600])),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: vm.todaysClasses.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (ctx, i) {
+                      final entry = vm.todaysClasses[i];
+                      final subj = vm.subjectsMap[entry.subjectId];
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                          child: Text(
+                            TimeFormatter.formatTime(entry.startTime).split(' ')[0],
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        title: Text(subj?.name ?? 'Unknown Subject', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text('${entry.room} • ${entry.section}'),
+                        trailing: FilledButton.icon(
+                          onPressed: () async {
+                            // FIX: Updated path to match main.dart route
+                            await context.push('/teacher/generate-qr/${entry.id}');
+
+                            // Refresh upon return
+                            ref.invalidate(teacherDashboardProvider);
+                          },
+                          icon: const Icon(Icons.qr_code, size: 18),
+                          label: const Text('Take'),
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                _TodayList(vm: vm),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4),
-                  child: Text('Weekly Timetable', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 20),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.0),
+                  child: Text('Weekly Timetable', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 ),
-                TimetableGrid(
-                  days: _days, periodStarts: _periodStarts, periodLabels: _periodLabels,
-                  entries: vm.allEntries.where((e) => e.section.contains(_year == 1 ? 'I-' : _year == 2 ? 'II-' : _year == 3 ? 'III-' : 'IV-')).toList(),
-                  subjectCodes: vm.subjectsMap.map((k, v) => MapEntry(k, v.code)),
-                  subjectLeadTeacherId: vm.subjectLeadMap,
-                  teacherNames: vm.teacherNamesMap,
-                  todayKey: _dayStr(DateTime.now().weekday),
-                ),
+                const SizedBox(height: 8),
+                _TimetablePreview(vm: vm),
+                const SizedBox(height: 40),
               ],
             ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _NextClassCard extends StatelessWidget {
-  final TeacherDashboardVM vm;
-  const _NextClassCard({required this.vm});
-
-  @override
-  Widget build(BuildContext context) {
-    final nc = vm.nextClass!;
-    final e = nc.entry;
-    final subjName = vm.subjectsMap[e.subjectId]?.name ?? e.subjectId;
-
-    return Card(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: ListTile(
-        leading: const Icon(Icons.schedule),
-        title: Text(nc.isOngoing ? 'Ongoing • Ends in ${nc.minutesToStart}m' : 'Next in ${nc.minutesToStart}m',
-            style: const TextStyle(fontWeight: FontWeight.w800)),
-        subtitle: Text('$subjName\nRoom ${e.room} • ${e.section}'),
-        isThreeLine: true,
-        trailing: Tooltip(
-          message: vm.canMarkNext ? 'Mark Attendance' : 'Too early',
-          child: FilledButton.tonal(
-            onPressed: vm.canMarkNext ? () => context.push('/teacher/mark/${e.id}') : null,
-            child: const Text('Open'),
           ),
         ),
       ),
@@ -215,32 +191,31 @@ class _NextClassCard extends StatelessWidget {
   }
 }
 
-class _TodayList extends StatelessWidget {
+class _Header extends StatelessWidget {
   final TeacherDashboardVM vm;
-  const _TodayList({required this.vm});
+  const _Header({required this.vm});
 
   @override
   Widget build(BuildContext context) {
-    if (vm.todaysClasses.isEmpty) {
-      return const Padding(padding: EdgeInsets.all(16), child: Text('No classes today.'));
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(padding: const EdgeInsets.all(16), child: Text("Today's Classes", style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700))),
-        ...vm.todaysClasses.map((e) {
-          final subj = vm.subjectsMap[e.subjectId]?.name ?? e.subjectId;
-          return ListTile(
-            leading: const Icon(Icons.class_),
-            title: Text(subj, style: const TextStyle(fontWeight: FontWeight.w600)),
-            subtitle: Text('${TimeFormatter.formatSlot(e.slot)} • ${e.room} • ${e.section}'),
-            trailing: FilledButton.tonal(
-              onPressed: () => context.push('/teacher/mark/${e.id}'),
-              child: const Text('Mark'),
-            ),
-          );
-        }),
-      ],
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).scaffoldBackgroundColor,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Good day, Professor!',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          Text(
+            'You have ${vm.todaysClasses.length} classes today.',
+            style: TextStyle(color: Colors.grey[600]),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -254,34 +229,82 @@ class _ActionButtons extends StatelessWidget {
         spacing: 8,
         runSpacing: 8,
         children: [
-          FilledButton.tonalIcon(onPressed: () => context.push('/teacher/internal-marks'), icon: const Icon(Icons.assessment), label: const Text('Marks')),
-          FilledButton.tonalIcon(onPressed: () => context.push('/teacher/remarks-board'), icon: const Icon(Icons.label), label: const Text('Remarks')),
-          FilledButton.tonalIcon(onPressed: () => context.push('/students/directory'), icon: const Icon(Icons.people), label: const Text('Students')),
+          FilledButton.tonalIcon(
+              onPressed: () => context.push('/teacher/internal-marks'),
+              icon: const Icon(Icons.assessment),
+              label: const Text('Marks')
+          ),
+          FilledButton.tonalIcon(
+              onPressed: () => context.push('/teacher/remarks-board'),
+              icon: const Icon(Icons.label),
+              label: const Text('Remarks')
+          ),
+          FilledButton.tonalIcon(
+              onPressed: () => context.push('/students/directory'),
+              icon: const Icon(Icons.people),
+              label: const Text('Students')
+          ),
         ],
       ),
     );
   }
 }
 
-class _YearSelector extends StatelessWidget {
-  final int selected;
-  final ValueChanged<int> onSelect;
-  const _YearSelector({required this.selected, required this.onSelect});
+class _TimetablePreview extends StatefulWidget {
+  final TeacherDashboardVM vm;
+  const _TimetablePreview({required this.vm});
+
+  @override
+  State<_TimetablePreview> createState() => _TimetablePreviewState();
+}
+
+class _TimetablePreviewState extends State<_TimetablePreview> {
+  int _selectedDay = DateTime.now().weekday; // 1=Mon
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-      child: Row(
-        children: [1, 2, 3, 4].map((y) => Padding(
-          padding: const EdgeInsets.only(right: 6),
-          child: ChoiceChip(
-            label: Text('$y${y==1?'st':y==2?'nd':y==3?'rd':'th'} Year'),
-            selected: selected == y,
-            onSelected: (_) => onSelect(y),
+    final dayMap = {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat'};
+    final dayKey = dayMap[_selectedDay] ?? 'Mon';
+
+    return Column(
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [1, 2, 3, 4, 5, 6].map((d) {
+              final isSel = d == _selectedDay;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(dayMap[d]!),
+                  selected: isSel,
+                  onSelected: (v) => setState(() => _selectedDay = d),
+                ),
+              );
+            }).toList(),
           ),
-        )).toList(),
-      ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          height: 300,
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey.withOpacity(0.2)),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: TimetableGrid(
+            days: [dayKey],
+            periodStarts: const ['08:30', '09:30', '10:30', '11:30', '12:30', '13:30', '14:30', '15:30', '16:30'],
+            periodLabels: const ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'],
+            entries: widget.vm.allEntries,
+            subjectCodes: {for (var k in widget.vm.subjectsMap.keys) k: widget.vm.subjectsMap[k]?.code ?? ''},
+            subjectLeadTeacherId: {for (var k in widget.vm.subjectsMap.keys) k: widget.vm.subjectsMap[k]?.teacherId ?? ''},
+            teacherNames: widget.vm.teacherNamesMap,
+            todayKey: dayKey,
+          ),
+        ),
+      ],
     );
   }
 }

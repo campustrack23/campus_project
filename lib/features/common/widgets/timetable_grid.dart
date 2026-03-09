@@ -1,7 +1,7 @@
 // lib/features/common/widgets/timetable_grid.dart
 import 'package:flutter/material.dart';
-import '../../../core/utils/time_formatter.dart';
 import '../../../core/models/timetable_entry.dart';
+import '../../../core/utils/time_formatter.dart';
 
 class TimetableGrid extends StatelessWidget {
   final List<String> days;
@@ -11,7 +11,7 @@ class TimetableGrid extends StatelessWidget {
   final Map<String, String> subjectCodes;
   final Map<String, String> subjectLeadTeacherId;
   final Map<String, String> teacherNames;
-  final String todayKey;
+  final String? todayKey;
 
   const TimetableGrid({
     super.key,
@@ -21,17 +21,20 @@ class TimetableGrid extends StatelessWidget {
     required this.entries,
     required this.subjectCodes,
     required this.subjectLeadTeacherId,
-    required this.teacherNames,
-    required this.todayKey,
+    this.teacherNames = const {},
+    this.todayKey,
   });
 
   @override
   Widget build(BuildContext context) {
-    // 1. Organize entries by Day -> Period Index
-    final Map<String, Map<int, TimetableEntry>> grid = {for (final d in days) d: {}};
+    // ------------------------------------------------------------
+    // 1. BUILD GRID MAP  (Day -> PeriodIndex -> Entry)
+    // ------------------------------------------------------------
+    final Map<String, Map<int, TimetableEntry>> grid = {
+      for (final d in days) d: {}
+    };
 
     for (final e in entries) {
-      // FIX: Normalize time to handle "8:30" vs "08:30" mismatch
       final entryTime = _normalizeTime(e.startTime);
       int pIndex = -1;
 
@@ -42,20 +45,22 @@ class TimetableGrid extends StatelessWidget {
         }
       }
 
-      if (pIndex != -1) {
+      if (pIndex != -1 && grid.containsKey(e.dayOfWeek)) {
         grid[e.dayOfWeek]![pIndex] = e;
       }
     }
 
-    // 2. Calculate Current Period (for highlighting)
+    // ------------------------------------------------------------
+    // 2. CURRENT PERIOD CALCULATION
+    // ------------------------------------------------------------
     final now = DateTime.now();
     final nowMins = now.hour * 60 + now.minute;
     int currentPeriodIndex = -1;
 
-    if (days.contains(todayKey)) {
+    if (todayKey != null && days.contains(todayKey)) {
       for (int i = 0; i < periodStarts.length; i++) {
         final startMins = _parseTime(periodStarts[i]);
-        final endMins = startMins + 60; // Assuming 1 hour slots
+        final endMins = startMins + 60; // 1 hour slot
         if (nowMins >= startMins && nowMins < endMins) {
           currentPeriodIndex = i;
           break;
@@ -63,73 +68,101 @@ class TimetableGrid extends StatelessWidget {
       }
     }
 
-    // 3. Build UI
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).scaffoldBackgroundColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Theme.of(context).dividerColor),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Table(
-          defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-          columnWidths: {
-            0: const FixedColumnWidth(60), // Day Column
-            for (int i = 0; i < periodStarts.length; i++)
-              i + 1: const FixedColumnWidth(115), // Class Columns
-          },
-          border: TableBorder(
-            verticalInside: BorderSide(
-              color: Theme.of(context).dividerColor.withValues(alpha: 0.5),
-              width: 1,
+    // ------------------------------------------------------------
+    // 3. UI TABLE (Responsive Layout Fix)
+    // ------------------------------------------------------------
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Calculate dynamic width. Ensure a minimum width of 115px per column so mobile works.
+        // If the screen is wider (e.g., tablet/web), stretch the columns evenly.
+        final double availableWidth = constraints.maxWidth - 60; // Subtract Day column width
+        final double dynamicColWidth = availableWidth / periodStarts.length;
+        final double finalColWidth = dynamicColWidth > 115.0 ? dynamicColWidth : 115.0;
+
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Theme.of(context).dividerColor),
             ),
-            horizontalInside: BorderSide.none,
-          ),
-          children: [
-            // --- HEADER ROW ---
-            TableRow(
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
-              ),
-              children: [
-                _buildHeaderCell(context, 'Day', ''),
+            clipBehavior: Clip.antiAlias,
+            child: Table(
+              defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+              columnWidths: {
+                0: const FixedColumnWidth(60),
                 for (int i = 0; i < periodStarts.length; i++)
-                  _buildHeaderCell(
-                    context,
-                    periodLabels[i],
-                    TimeFormatter.formatTime(periodStarts[i]),
+                  i + 1: FixedColumnWidth(finalColWidth),
+              },
+              children: [
+                // ------------------------------------------------------------
+                // HEADER ROW
+                // ------------------------------------------------------------
+                TableRow(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    border: Border(
+                      bottom: BorderSide(color: Theme.of(context).dividerColor),
+                    ),
+                  ),
+                  children: [
+                    _buildHeaderCell(context, 'Day', ''),
+                    for (int i = 0; i < periodStarts.length; i++)
+                      _buildHeaderCell(
+                        context,
+                        periodLabels[i],
+                        TimeFormatter.formatTime(periodStarts[i]),
+                      ),
+                  ],
+                ),
+
+                // ------------------------------------------------------------
+                // DATA ROWS
+                // ------------------------------------------------------------
+                for (final day in days)
+                  TableRow(
+                    decoration: BoxDecoration(
+                      color: day == todayKey
+                          ? Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.05)
+                          : null,
+                      border: Border(
+                        bottom: BorderSide(
+                          color: Theme.of(context)
+                              .dividerColor
+                              .withValues(alpha: 0.4),
+                        ),
+                      ),
+                    ),
+                    children: [
+                      _buildDayCell(
+                        context,
+                        day,
+                        isToday: day == todayKey,
+                      ),
+                      for (int i = 0; i < periodStarts.length; i++)
+                        _buildClassCell(
+                          context,
+                          grid[day]?[i],
+                          isCurrent:
+                          day == todayKey && i == currentPeriodIndex,
+                        ),
+                    ],
                   ),
               ],
             ),
-
-            // --- DATA ROWS ---
-            for (final day in days)
-              TableRow(
-                decoration: BoxDecoration(
-                  color: day == todayKey
-                      ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.04)
-                      : null,
-                  border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.5))),
-                ),
-                children: [
-                  _buildDayCell(context, day, isToday: day == todayKey),
-                  for (int i = 0; i < periodStarts.length; i++)
-                    _buildClassCell(
-                      context,
-                      grid[day]?[i],
-                      isCurrent: (day == todayKey && i == currentPeriodIndex),
-                    ),
-                ],
-              ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
+
+  // ------------------------------------------------------------
+  // TIME HELPERS
+  // ------------------------------------------------------------
 
   int _parseTime(String hhmm) {
     try {
@@ -146,9 +179,15 @@ class TimetableGrid extends StatelessWidget {
     return '${int.parse(parts[0]).toString().padLeft(2, '0')}:${int.parse(parts[1]).toString().padLeft(2, '0')}';
   }
 
-  // --- WIDGET BUILDERS ---
+  // ------------------------------------------------------------
+  // HEADER + DAY CELLS
+  // ------------------------------------------------------------
 
-  Widget _buildHeaderCell(BuildContext context, String label, String subLabel) {
+  Widget _buildHeaderCell(
+      BuildContext context,
+      String label,
+      String subLabel,
+      ) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
       child: Column(
@@ -174,8 +213,15 @@ class TimetableGrid extends StatelessWidget {
     );
   }
 
-  Widget _buildDayCell(BuildContext context, String day, {required bool isToday}) {
-    final color = isToday ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onSurfaceVariant;
+  Widget _buildDayCell(
+      BuildContext context,
+      String day, {
+        required bool isToday,
+      }) {
+    final color = isToday
+        ? Theme.of(context).colorScheme.primary
+        : Theme.of(context).colorScheme.onSurfaceVariant;
+
     return Container(
       height: 85,
       alignment: Alignment.center,
@@ -193,8 +239,15 @@ class TimetableGrid extends StatelessWidget {
       ),
     );
   }
+  // ------------------------------------------------------------
+  // CLASS CELL
+  // ------------------------------------------------------------
 
-  Widget _buildClassCell(BuildContext context, TimetableEntry? entry, {required bool isCurrent}) {
+  Widget _buildClassCell(
+      BuildContext context,
+      TimetableEntry? entry, {
+        required bool isCurrent,
+      }) {
     if (entry == null) {
       return Container(
         height: 85,
@@ -211,11 +264,16 @@ class TimetableGrid extends StatelessWidget {
     }
 
     final subjCode = subjectCodes[entry.subjectId] ?? 'SUBJ';
+
+    // --- Teacher display logic ---
     String teacherDisplay = '';
     if (entry.teacherIds.isNotEmpty) {
       final first = teacherNames[entry.teacherIds.first] ?? '';
-      teacherDisplay = first.length > 10 ? '${first.substring(0, 8)}..' : first;
-      if (entry.teacherIds.length > 1) teacherDisplay += ' +';
+      teacherDisplay =
+      first.length > 10 ? '${first.substring(0, 8)}..' : first;
+      if (entry.teacherIds.length > 1) {
+        teacherDisplay += ' +';
+      }
     } else {
       final leadId = subjectLeadTeacherId[entry.subjectId];
       if (leadId != null) {
@@ -240,13 +298,18 @@ class TimetableGrid extends StatelessWidget {
           color: bgColor,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: borderColor, width: 1.5),
-          boxShadow: isCurrent ? [
-            BoxShadow(color: borderColor.withValues(alpha: 0.3), blurRadius: 4, offset: const Offset(0, 2))
-          ] : null,
+          boxShadow: isCurrent
+              ? [
+            BoxShadow(
+              color: borderColor.withValues(alpha: 0.3),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            )
+          ]
+              : null,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
@@ -268,21 +331,32 @@ class TimetableGrid extends StatelessWidget {
               ),
               child: Text(
                 entry.room,
-                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
             const Spacer(),
             if (teacherDisplay.isNotEmpty)
               Row(
                 children: [
-                  Icon(Icons.person, size: 10, color: Theme.of(context).colorScheme.secondary),
+                  Icon(
+                    Icons.person,
+                    size: 10,
+                    color: Theme.of(context).colorScheme.secondary,
+                  ),
                   const SizedBox(width: 2),
                   Expanded(
                     child: Text(
                       teacherDisplay,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.secondary),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color:
+                        Theme.of(context).colorScheme.secondary,
+                      ),
                     ),
                   ),
                 ],

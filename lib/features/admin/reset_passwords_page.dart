@@ -2,13 +2,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../common/widgets/profile_avatar_action.dart';
-import '../common/widgets/app_drawer.dart';
-// --- FIX: Import the new error widget ---
-import '../common/widgets/async_error_widget.dart';
 import '../../core/models/role.dart';
 import '../../core/models/user.dart';
-import '../../main.dart'; // Import main.dart to get the global provider
+import '../../main.dart';
+import '../common/widgets/app_drawer.dart';
+import '../common/widgets/profile_avatar_action.dart';
+import '../common/widgets/async_error_widget.dart';
+
+// DEFINED HERE TO FIX "Undefined name" ERROR
+final allUsersProvider = FutureProvider.autoDispose<List<UserAccount>>((ref) async {
+  return ref.watch(authRepoProvider).allUsers();
+});
 
 class ResetPasswordsPage extends ConsumerStatefulWidget {
   const ResetPasswordsPage({super.key});
@@ -39,7 +43,6 @@ class _ResetPasswordsPageState extends ConsumerState<ResetPasswordsPage> {
         appBar: AppBar(
           leading: Builder(
             builder: (ctx) => IconButton(
-              tooltip: 'Menu',
               icon: const Icon(Icons.menu),
               onPressed: () => Scaffold.of(ctx).openDrawer(),
             ),
@@ -51,40 +54,68 @@ class _ResetPasswordsPageState extends ConsumerState<ResetPasswordsPage> {
         drawer: const AppDrawer(),
         body: asyncUsers.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          // --- FIX: Use the new error widget ---
-          error: (err, stack) => AsyncErrorWidget(
+          error: (err, _) => AsyncErrorWidget(
+            // FIXED: Removed 'const' keyword
             message: err.toString(),
             onRetry: () => ref.invalidate(allUsersProvider),
           ),
-          // --- End of Fix ---
           data: (users) {
-            List<UserAccount> studentsByYear(int year) =>
-                users.where((u) => u.role == UserRole.student && u.year == year).toList()
-                  ..sort((a, b) => (a.collegeRollNo ?? '').compareTo(b.collegeRollNo ?? ''));
+            List<UserAccount> studentsByYear(int year) => users
+                .where((u) => u.role == UserRole.student && u.year == year)
+                .toList()
+              ..sort((a, b) =>
+                  (a.collegeRollNo ?? '').compareTo(b.collegeRollNo ?? ''));
 
-            final teachers = users.where((u) => u.role == UserRole.teacher).toList()
-              ..sort((a, b) => (a.name).compareTo(b.name));
-            final admins = users.where((u) => u.role == UserRole.admin).toList()
-              ..sort((a, b) => (a.name).compareTo(b.name));
+            final teachers = users
+                .where((u) => u.role == UserRole.teacher)
+                .toList()
+              ..sort((a, b) => a.name.compareTo(b.name));
+
+            final admins = users
+                .where((u) => u.role == UserRole.admin)
+                .toList()
+              ..sort((a, b) => a.name.compareTo(b.name));
 
             return Column(
               children: [
                 Padding(
                   padding: const EdgeInsets.all(12),
                   child: TextField(
-                    decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search users'),
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.search),
+                      hintText: 'Search by name, roll, email, phone',
+                      border: OutlineInputBorder(),
+                    ),
                     onChanged: (v) => setState(() => _query = v),
                   ),
                 ),
                 Expanded(
                   child: TabBarView(
                     children: [
-                      _ResetList(list: _filter(studentsByYear(1)), onReset: _reset),
-                      _ResetList(list: _filter(studentsByYear(2)), onReset: _reset),
-                      _ResetList(list: _filter(studentsByYear(3)), onReset: _reset),
-                      _ResetList(list: _filter(studentsByYear(4)), onReset: _reset),
-                      _ResetList(list: _filter(teachers), onReset: _reset),
-                      _ResetList(list: _filter(admins), onReset: _reset),
+                      _ResetList(
+                        list: _filter(studentsByYear(1)),
+                        onReset: _resetPassword,
+                      ),
+                      _ResetList(
+                        list: _filter(studentsByYear(2)),
+                        onReset: _resetPassword,
+                      ),
+                      _ResetList(
+                        list: _filter(studentsByYear(3)),
+                        onReset: _resetPassword,
+                      ),
+                      _ResetList(
+                        list: _filter(studentsByYear(4)),
+                        onReset: _resetPassword,
+                      ),
+                      _ResetList(
+                        list: _filter(teachers),
+                        onReset: _resetPassword,
+                      ),
+                      _ResetList(
+                        list: _filter(admins),
+                        onReset: _resetPassword,
+                      ),
                     ],
                   ),
                 ),
@@ -96,9 +127,14 @@ class _ResetPasswordsPageState extends ConsumerState<ResetPasswordsPage> {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // HELPERS
+  // ---------------------------------------------------------------------------
+
   List<UserAccount> _filter(List<UserAccount> list) {
     final q = _query.toLowerCase().trim();
     if (q.isEmpty) return list;
+
     return list.where((u) {
       return u.name.toLowerCase().contains(q) ||
           (u.collegeRollNo ?? '').toLowerCase().contains(q) ||
@@ -108,45 +144,69 @@ class _ResetPasswordsPageState extends ConsumerState<ResetPasswordsPage> {
     }).toList();
   }
 
-  Future<void> _reset(BuildContext context, UserAccount u) async {
-    if (u.email == null || u.email!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This user does not have an email to send a reset link to.')));
+  Future<void> _resetPassword(BuildContext context, UserAccount user) async {
+    if (user.email == null || user.email!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No email available for this user')),
+      );
       return;
     }
 
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text('Reset ${u.name}\'s password?'),
-        content: Text('A password reset link will be sent to ${u.email}.'),
+        title: Text('Reset ${user.name}\'s password?'),
+        content: Text('A password reset link will be sent to:\n${user.email}'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Send Link')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Send Link'),
+          ),
         ],
       ),
     );
 
     if (ok == true) {
       try {
-        await ref.read(authRepoProvider).requestPasswordReset(u.email!);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password reset link sent.')));
+        await ref.read(authRepoProvider).requestPasswordReset(user.email!);
+        // FIXED: Use context.mounted
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Password reset link sent')),
+        );
       } catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}')));
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
       }
     }
   }
 }
 
-class _ResetList extends ConsumerWidget {
+// -----------------------------------------------------------------------------
+// RESET LIST
+// -----------------------------------------------------------------------------
+
+class _ResetList extends StatelessWidget {
   final List<UserAccount> list;
   final Future<void> Function(BuildContext, UserAccount) onReset;
-  const _ResetList({required this.list, required this.onReset});
+
+  const _ResetList({
+    required this.list,
+    required this.onReset,
+  });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (list.isEmpty) return const Center(child: Text('No users found'));
+  Widget build(BuildContext context) {
+    if (list.isEmpty) {
+      return const Center(child: Text('No users found'));
+    }
+
     return ListView.separated(
       itemCount: list.length,
       separatorBuilder: (_, __) => const Divider(height: 0),
@@ -155,11 +215,15 @@ class _ResetList extends ConsumerWidget {
         final ids = [
           if (u.collegeRollNo != null) 'CR: ${u.collegeRollNo}',
           if (u.examRollNo != null) 'ER: ${u.examRollNo}',
-        ].join('  •  ');
+        ].join(' • ');
+
         return ListTile(
           leading: const Icon(Icons.lock_reset),
           title: Text(u.name),
-          subtitle: Text('${u.role.label} • ${u.email ?? u.phone}${ids.isNotEmpty ? ' • $ids' : ''}'),
+          subtitle: Text(
+            '${u.role.label} • ${u.email ?? u.phone}'
+                '${ids.isNotEmpty ? ' • $ids' : ''}',
+          ),
           trailing: const Icon(Icons.arrow_forward_ios, size: 16),
           onTap: () => onReset(context, u),
         );

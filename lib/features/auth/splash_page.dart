@@ -1,65 +1,89 @@
-// lib/features/auth/splash_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Navigation and auth logic handled globally (e.g., in GoRouter).
-/// This widget is purely visual splash screen.
+/// ---------------------------------------------------------------------------
+/// SPLASH PAGE
+/// ---------------------------------------------------------------------------
+///
+/// • Navigation and auth logic is handled globally (e.g. GoRouter redirect)
+/// • This widget is purely visual
+///
 class SplashPage extends ConsumerWidget {
   const SplashPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final bg = Theme.of(context).scaffoldBackgroundColor;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
+    final backgroundColor = theme.scaffoldBackgroundColor;
     final cardColor = isDark
-        ? Theme.of(context).cardTheme.color
-        : const Color(0xFF2D232C); // Dark purple brand color for light mode
+        ? theme.cardTheme.color ?? theme.colorScheme.surface
+        : theme.colorScheme.primary;
 
     return Scaffold(
-      backgroundColor: bg,
+      backgroundColor: backgroundColor,
       body: Center(
         child: Container(
-          width: 240,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+          width: 260,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 24,
+          ),
           decoration: BoxDecoration(
             color: cardColor,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.2),
-                blurRadius: 10,
-                offset: const Offset(0, 6),
-              )
+                color: Colors.black.withOpacity(0.25),
+                blurRadius: 14,
+                offset: const Offset(0, 8),
+              ),
             ],
           ),
-          child: const Column(
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.calendar_month, color: Colors.white, size: 42),
-              SizedBox(height: 10),
-              Text(
+              const Icon(
+                Icons.school,
+                size: 56,
+                color: Colors.white,
+              ),
+              const SizedBox(height: 12),
+              const Text(
                 'CAMPUS TRACK',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.2,
                 ),
                 textAlign: TextAlign.center,
               ),
-              SizedBox(height: 6),
-              Text(
+              const SizedBox(height: 6),
+              const Text(
                 'Attendance & Timetable',
-                style: TextStyle(color: Colors.white70, fontSize: 12),
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                ),
                 textAlign: TextAlign.center,
               ),
-              SizedBox(height: 16),
-              SizedBox(
-                height: 18,
-                width: 18,
+              const SizedBox(height: 20),
+              const SizedBox(
+                height: 22,
+                width: 22,
                 child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
                   color: Colors.white,
-                  strokeWidth: 2,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Loading Campus Track...',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.85),
+                  fontSize: 14,
                 ),
               ),
             ],

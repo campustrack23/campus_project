@@ -7,33 +7,25 @@ import '../core/models/subject.dart';
 class TimetableRepository {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  // No LocalStorage needed anymore; Firestore handles caching automatically.
   TimetableRepository();
 
   CollectionReference<TimetableEntry> get _entriesRef =>
       _db.collection('timetable').withConverter<TimetableEntry>(
-        fromFirestore: (snap, _) {
-          final raw = snap.data();
-          final map = raw == null ? null : Map<String, dynamic>.from(raw);
-          return TimetableEntry.fromMap(snap.id, map);
-        },
+        // FIX: Pass snap.id to fromMap
+        fromFirestore: (snap, _) => TimetableEntry.fromMap(snap.id, snap.data()!),
         toFirestore: (entry, _) => entry.toMap(),
       );
 
   CollectionReference<Subject> get _subjectsRef =>
       _db.collection('subjects').withConverter<Subject>(
-        fromFirestore: (snap, _) {
-          final raw = snap.data();
-          final map = raw == null ? null : Map<String, dynamic>.from(raw);
-          return Subject.fromMap(snap.id, map);
-        },
+        // FIX: Pass snap.id to fromMap
+        fromFirestore: (snap, _) => Subject.fromMap(snap.id, snap.data()!),
         toFirestore: (subj, _) => subj.toMap(),
       );
 
-  // --- READ METHODS (Auto-Cached) ---
+  // --- READ METHODS ---
 
   Future<Subject?> subjectById(String id) async {
-    // This automatically checks local cache first if offline
     final doc = await _subjectsRef.doc(id).get();
     return doc.data();
   }
@@ -49,7 +41,6 @@ class TimetableRepository {
   }
 
   Future<List<Subject>> allSubjects() async {
-    // Using default source: checks server, falls back to cache if offline
     final snapshot = await _subjectsRef.orderBy('code').get();
     return snapshot.docs.map((d) => d.data()).toList();
   }
@@ -93,11 +84,11 @@ class TimetableRepository {
       id: const Uuid().v4(),
       subjectId: subjects.isNotEmpty ? subjects.first.id : '',
       dayOfWeek: 'Mon',
-      startTime: '08:30',
-      endTime: '09:30',
-      room: '301',
-      section: 'IV-HE',
-      teacherIds: subjects.isNotEmpty ? [subjects.first.teacherId] : [],
+      startTime: '09:30',
+      endTime: '10:30',
+      room: '',
+      section: '',
+      teacherIds: [],
     );
   }
 }

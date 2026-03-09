@@ -2,154 +2,121 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class InternalMarks {
-  final String id; // doc ID: subjectId_studentId
+  final String id;
   final String subjectId;
   final String studentId;
-  final String teacherId;
-
+  final String teacherId; // Added to track who graded
   final double assignmentMarks; // Max 12
   final double testMarks;       // Max 12
   final double attendanceMarks; // Max 6
   final double totalMarks;      // Max 30
-
+  final bool isFrozen;
   final bool isVisibleToStudent;
-  final DateTime updatedAt;
+  final DateTime updatedAt;     // Added timestamp
 
   const InternalMarks({
     required this.id,
     required this.subjectId,
     required this.studentId,
     required this.teacherId,
-    this.assignmentMarks = 0.0,
-    this.testMarks = 0.0,
-    this.attendanceMarks = 0.0,
-    this.totalMarks = 0.0,
+    required this.assignmentMarks,
+    required this.testMarks,
+    required this.attendanceMarks,
+    required this.totalMarks,
+    this.isFrozen = false,
     this.isVisibleToStudent = false,
     required this.updatedAt,
   });
 
-  /// Helper to create a new, empty record
+  // FIX: Added 'empty' factory for new entries
   factory InternalMarks.empty({
     required String subjectId,
     required String studentId,
     required String teacherId,
   }) {
     return InternalMarks(
-      id: '${subjectId}_$studentId',
+      id: '',
       subjectId: subjectId,
       studentId: studentId,
       teacherId: teacherId,
+      assignmentMarks: 0,
+      testMarks: 0,
+      attendanceMarks: 0,
+      totalMarks: 0,
+      isFrozen: false,
+      isVisibleToStudent: false,
       updatedAt: DateTime.now(),
     );
   }
 
+  // FIX: Added logic to sum up marks
+  InternalMarks recalculateTotal() {
+    return copyWith(
+      totalMarks: assignmentMarks + testMarks + attendanceMarks,
+    );
+  }
+
   InternalMarks copyWith({
+    String? id,
+    String? subjectId,
+    String? studentId,
     String? teacherId,
     double? assignmentMarks,
     double? testMarks,
     double? attendanceMarks,
-    // totalMarks is usually auto-calculated, so omitted from copyWith
+    double? totalMarks,
+    bool? isFrozen,
     bool? isVisibleToStudent,
     DateTime? updatedAt,
   }) {
     return InternalMarks(
-      id: id,
-      subjectId: subjectId,
-      studentId: studentId,
+      id: id ?? this.id,
+      subjectId: subjectId ?? this.subjectId,
+      studentId: studentId ?? this.studentId,
       teacherId: teacherId ?? this.teacherId,
       assignmentMarks: assignmentMarks ?? this.assignmentMarks,
       testMarks: testMarks ?? this.testMarks,
       attendanceMarks: attendanceMarks ?? this.attendanceMarks,
-      totalMarks: (assignmentMarks ?? this.assignmentMarks) +
-          (testMarks ?? this.testMarks) +
-          (attendanceMarks ?? this.attendanceMarks),
+      totalMarks: totalMarks ?? this.totalMarks,
+      isFrozen: isFrozen ?? this.isFrozen,
       isVisibleToStudent: isVisibleToStudent ?? this.isVisibleToStudent,
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
-  /// Recalculate total marks explicitly, useful after batch updates
-  InternalMarks recalculateTotal() {
-    final newTotal = assignmentMarks + testMarks + attendanceMarks;
-    return InternalMarks(
-      id: id,
-      subjectId: subjectId,
-      studentId: studentId,
-      teacherId: teacherId,
-      assignmentMarks: assignmentMarks,
-      testMarks: testMarks,
-      attendanceMarks: attendanceMarks,
-      totalMarks: newTotal,
-      isVisibleToStudent: isVisibleToStudent,
-      updatedAt: DateTime.now(),
-    );
-  }
+  Map<String, dynamic> toMap() => {
+    'subjectId': subjectId,
+    'studentId': studentId,
+    'teacherId': teacherId,
+    'assignmentMarks': assignmentMarks,
+    'testMarks': testMarks,
+    'attendanceMarks': attendanceMarks,
+    'totalMarks': totalMarks,
+    'isFrozen': isFrozen,
+    'isVisibleToStudent': isVisibleToStudent,
+    'updatedAt': Timestamp.fromDate(updatedAt),
+  };
 
-  Map<String, dynamic> toMap() {
-    return {
-      'subjectId': subjectId,
-      'studentId': studentId,
-      'teacherId': teacherId,
-      'assignmentMarks': assignmentMarks,
-      'testMarks': testMarks,
-      'attendanceMarks': attendanceMarks,
-      'totalMarks': totalMarks,
-      'isVisibleToStudent': isVisibleToStudent,
-      'updatedAt': Timestamp.fromDate(updatedAt),
-    };
-  }
+  factory InternalMarks.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final map = doc.data()!;
+    DateTime parseDate(dynamic input) {
+      if (input is Timestamp) return input.toDate();
+      if (input is String) return DateTime.tryParse(input) ?? DateTime.now();
+      return DateTime.now();
+    }
 
-  factory InternalMarks.fromMap(Map<String, dynamic> map) {
     return InternalMarks(
-      id: map['id'] ?? '',
+      id: doc.id,
       subjectId: map['subjectId'] ?? '',
       studentId: map['studentId'] ?? '',
       teacherId: map['teacherId'] ?? '',
       assignmentMarks: (map['assignmentMarks'] as num?)?.toDouble() ?? 0.0,
       testMarks: (map['testMarks'] as num?)?.toDouble() ?? 0.0,
       attendanceMarks: (map['attendanceMarks'] as num?)?.toDouble() ?? 0.0,
-      totalMarks: (map['totalMarks'] as num?)?.toDouble() ??
-          ((map['assignmentMarks'] as num?)?.toDouble() ?? 0.0) +
-              ((map['testMarks'] as num?)?.toDouble() ?? 0.0) +
-              ((map['attendanceMarks'] as num?)?.toDouble() ?? 0.0),
-      isVisibleToStudent: map['isVisibleToStudent'] as bool? ?? false,
-      updatedAt: (map['updatedAt'] as Timestamp).toDate(),
+      totalMarks: (map['totalMarks'] as num?)?.toDouble() ?? 0.0,
+      isFrozen: map['isFrozen'] ?? false,
+      isVisibleToStudent: map['isVisibleToStudent'] ?? false,
+      updatedAt: parseDate(map['updatedAt']),
     );
-  }
-
-  factory InternalMarks.fromDoc(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>? ?? {};
-    return InternalMarks.fromMap({...data, 'id': doc.id});
-  }
-
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-
-    return other is InternalMarks &&
-        other.id == id &&
-        other.subjectId == subjectId &&
-        other.studentId == studentId &&
-        other.teacherId == teacherId &&
-        other.assignmentMarks == assignmentMarks &&
-        other.testMarks == testMarks &&
-        other.attendanceMarks == attendanceMarks &&
-        other.totalMarks == totalMarks &&
-        other.isVisibleToStudent == isVisibleToStudent &&
-        other.updatedAt == updatedAt;
-  }
-
-  @override
-  int get hashCode {
-    return id.hashCode ^
-    subjectId.hashCode ^
-    studentId.hashCode ^
-    teacherId.hashCode ^
-    assignmentMarks.hashCode ^
-    testMarks.hashCode ^
-    attendanceMarks.hashCode ^
-    totalMarks.hashCode ^
-    isVisibleToStudent.hashCode ^
-    updatedAt.hashCode;
   }
 }

@@ -1,14 +1,20 @@
-// lib/data/attendance_repository.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
-import 'package:uuid/uuid.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/models/attendance.dart';
 import '../core/models/attendance_session.dart';
-import '../core/models/user.dart';
+
+// Simple provider definition to ensure access in consumers
+final attendanceRepoProvider = Provider<AttendanceRepository>((ref) {
+  return AttendanceRepository();
+});
 
 class AttendanceRepository {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
+
+  // ---------------------------------------------------------------------------
+  // COLLECTION REFERENCES
+  // ---------------------------------------------------------------------------
 
   CollectionReference<AttendanceRecord> get _recordsRef =>
       _db.collection('attendance').withConverter<AttendanceRecord>(
@@ -20,147 +26,108 @@ class AttendanceRepository {
   CollectionReference<AttendanceSession> get sessionsRef =>
       _db.collection('attendance_sessions').withConverter<AttendanceSession>(
         fromFirestore: (snap, _) =>
-            AttendanceSession.fromMap(snap.id, snap.data()),
+            AttendanceSession.fromMap(snap.id, snap.data()!),
         toFirestore: (session, _) => session.toMap(),
       );
 
-  CollectionReference _attendeesRef(String sessionId) =>
-      sessionsRef.doc(sessionId).collection('attendees');
+  // ---------------------------------------------------------------------------
+  // SECURE MARKING (TRANSACTIONAL)
+  // ---------------------------------------------------------------------------
 
-  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> listenToAttendees(
-      String sessionId) {
-    return _attendeesRef(sessionId)
-        .snapshots()
-        .map((snap) => snap.docs
-        .map((d) => d as QueryDocumentSnapshot<Map<String, dynamic>>)
-        .toList());
-  }
-
-  Future<List<AttendanceRecord>> allRecords() async {
-    final snapshot = await _recordsRef.orderBy('date', descending: true).get();
-    return snapshot.docs.map((doc) => doc.data()).toList();
-  }
-
-  // ---------------- Create Session ----------------
-  Future<AttendanceSession> createAttendanceSession({
-    required String teacherId,
-    required String subjectId,
-    required String section,
-    required String slot,
-  }) async {
-    // Check for existing active session to prevent duplicates
-    final existing = await sessionsRef
-        .where('teacherId', isEqualTo: teacherId)
-        .where('subjectId', isEqualTo: subjectId)
-        .where('section', isEqualTo: section)
-        .where('status', isEqualTo: 'open')
-        .get();
-
-    for (var doc in existing.docs) {
-      if (!doc.data().isExpired) {
-        return doc.data();
-      }
-    }
-
-    // Use UTC for server consistency
-    final now = DateTime.now().toUtc();
-    final id = const Uuid().v4();
-
-    final session = AttendanceSession(
-      id: id,
-      teacherId: teacherId,
-      subjectId: subjectId,
-      section: section,
-      slot: slot,
-      createdAt: now,
-      expiresAt: now.add(const Duration(minutes: 10)),
-      status: AttendanceSessionStatus.open,
-    );
-
-    await sessionsRef.doc(id).set(session);
-    return session;
-  }
-
-  // ---------------- Mark Present (Transaction) ----------------
-  Future<String> markStudentPresent({
+  /// Marks a student as PRESENT for a given session.
+  /// Validates:
+  /// 1. Session exists.
+  /// 2. Session is ACTIVE.
+  /// 3. Student hasn't already marked.
+  Future<void> markPresentSecure({
     required String sessionId,
     required String studentId,
-    required String studentName,
   }) async {
-    return _db.runTransaction((transaction) async {
-      final sessionDocRef = sessionsRef.doc(sessionId);
-      final attendeeDocRef = _attendeesRef(sessionId).doc(studentId);
+    final sessionRef = sessionsRef.doc(sessionId);
+    // Deterministic ID to prevent duplicate records for same student/session
+    final recordId = '${sessionId}_$studentId';
+    final recordRef = _recordsRef.doc(recordId);
 
-      final sessionSnap = await transaction.get(sessionDocRef);
-      if (!sessionSnap.exists) throw Exception('Session does not exist.');
+    await _db.runTransaction((transaction) async {
+      final sessionSnap = await transaction.get(sessionRef);
+
+      if (!sessionSnap.exists) {
+        throw FirebaseException(
+          plugin: 'cloud_firestore',
+          code: 'not-found',
+          message: 'Attendance session not found.',
+        );
+      }
 
       final session = sessionSnap.data()!;
-      if (!session.isActive) throw Exception('Session closed or expired.');
+      if (!session.isActive) {
+        throw FirebaseException(
+          plugin: 'cloud_firestore',
+          code: 'failed-precondition',
+          message: 'Attendance session is closed.',
+        );
+      }
 
-      final attendeeSnap = await transaction.get(attendeeDocRef);
-      if (attendeeSnap.exists) return 'Already marked present.';
+      final recordSnap = await transaction.get(recordRef);
+      if (recordSnap.exists) {
+        // Already marked, just return (idempotent) or throw if you want UI feedback
+        // throwing allows the UI to say "Already marked"
+        throw FirebaseException(
+            plugin: 'cloud_firestore',
+            code: 'already-exists',
+            message: 'You have already marked attendance for this session.');
+      }
 
-      transaction.set(attendeeDocRef, {
-        'studentId': studentId,
-        'name': studentName,
-        'scannedAt': FieldValue.serverTimestamp(),
-      });
-
-      return 'Marked Present';
-    });
-  }
-
-  // ---------------- Finalize Attendance (TIMEZONE FIX) ----------------
-  Future<List<AttendanceRecord>> finalizeAttendance({
-    required String sessionId,
-    required List<UserAccount> studentsInSection,
-  }) async {
-    final sessionDoc = await sessionsRef.doc(sessionId).get();
-    final session = sessionDoc.data();
-    if (session == null) throw Exception('Session not found.');
-
-    final attendeeSnapshot = await _attendeesRef(sessionId).get();
-    final presentStudentIds = attendeeSnapshot.docs.map((doc) => doc.id).toSet();
-
-    final batch = _db.batch();
-    final List<AttendanceRecord> createdRecords = [];
-
-    // FIX: Use SESSION date (converted to Local), not "Current Moment"
-    // This ensures if a class happens at 11:55 PM and is finalized at 12:05 AM,
-    // it counts for the correct day.
-    final sessionDateLocal = session.createdAt.toLocal();
-    final dateOnly = DateTime(sessionDateLocal.year, sessionDateLocal.month, sessionDateLocal.day);
-
-    for (final student in studentsInSection) {
-      final isPresent = presentStudentIds.contains(student.id);
-      final status = isPresent ? AttendanceStatus.present : AttendanceStatus.absent;
-
-      final docId = _generateRecordId(session.subjectId, student.id, dateOnly, session.slot);
-      final docRef = _recordsRef.doc(docId);
-
-      final record = AttendanceRecord(
-        id: docId,
+      // Create the record
+      final newRecord = AttendanceRecord(
+        id: recordId,
+        sessionId: sessionId,
+        studentId: studentId,
         subjectId: session.subjectId,
-        studentId: student.id,
-        date: dateOnly,
+        date: DateTime.now(), // Store actual mark time
         slot: session.slot,
-        status: status,
-        markedByTeacherId: session.teacherId,
+        status: AttendanceStatus.present,
+        markedByTeacherId: session.teacherId, // Or "SELF" if tracking source
         markedAt: DateTime.now(),
       );
 
-      batch.set(docRef, record, SetOptions(merge: true));
-      createdRecords.add(record);
-    }
-
-    batch.update(sessionsRef.doc(sessionId), {'status': 'closed'});
-    await batch.commit();
-
-    return createdRecords;
+      transaction.set(recordRef, newRecord);
+    });
   }
 
-  // ---------------- Manual Marking ----------------
-  Future<void> mark({
+  // ---------------------------------------------------------------------------
+  // READ METHODS
+  // ---------------------------------------------------------------------------
+
+  Future<List<AttendanceRecord>> allRecords() async {
+    final snap = await _recordsRef
+        .orderBy('date', descending: true)
+        .limit(500)
+        .get();
+
+    return snap.docs.map((d) => d.data()).toList();
+  }
+
+  Future<List<AttendanceRecord>> getRecordsForSession(String sessionId) async {
+    final snap =
+    await _recordsRef.where('sessionId', isEqualTo: sessionId).get();
+    return snap.docs.map((d) => d.data()).toList();
+  }
+
+  Future<List<AttendanceRecord>> forStudent(String studentId) async {
+    final snap = await _recordsRef
+        .where('studentId', isEqualTo: studentId)
+        .orderBy('date', descending: true)
+        .limit(200)
+        .get();
+    return snap.docs.map((d) => d.data()).toList();
+  }
+
+  // ---------------------------------------------------------------------------
+  // TEACHER / ADMIN MANUAL OVERRIDES
+  // ---------------------------------------------------------------------------
+
+  Future<void> markManual({
     required String subjectId,
     required String studentId,
     required DateTime date,
@@ -168,17 +135,18 @@ class AttendanceRepository {
     required AttendanceStatus status,
     required String markedByTeacherId,
   }) async {
-    // Ensure date passed in is already Local Midnight, but safeguard here:
-    final localDate = date.toLocal();
-    final dateOnly = DateTime(localDate.year, localDate.month, localDate.day);
-
-    final docId = _generateRecordId(subjectId, studentId, dateOnly, slot);
+    // Generate a unique ID based on day/slot/student so we don't have duplicates
+    // Note: 'date' should be stripped of time for the ID part if you want one-per-slot constraint
+    final dateKey =
+        "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+    final docId = '${subjectId}_${studentId}_${dateKey}_$slot';
 
     final record = AttendanceRecord(
       id: docId,
-      subjectId: subjectId,
+      sessionId: 'MANUAL',
       studentId: studentId,
-      date: dateOnly,
+      subjectId: subjectId,
+      date: date,
       slot: slot,
       status: status,
       markedByTeacherId: markedByTeacherId,
@@ -186,39 +154,5 @@ class AttendanceRepository {
     );
 
     await _recordsRef.doc(docId).set(record, SetOptions(merge: true));
-  }
-
-  // ---------------- Queries ----------------
-  Future<List<AttendanceRecord>> forStudent(String studentId) async {
-    final snapshot = await _recordsRef
-        .where('studentId', isEqualTo: studentId)
-        .orderBy('date', descending: true)
-        .get();
-    return snapshot.docs.map((doc) => doc.data()).toList();
-  }
-
-  Future<List<AttendanceRecord>> forSubjectAndDate(String subjectId, DateTime date) async {
-    // Normalize input date to Local Midnight
-    final d = date.toLocal();
-    final normalizedDate = DateTime(d.year, d.month, d.day);
-
-    // Fetch by subject first
-    final snapshot = await _recordsRef.where('subjectId', isEqualTo: subjectId).get();
-
-    // Filter by date in memory to avoid complex Firestore indexes
-    // and ensure timezone matching matches the "dateOnly" logic above
-    return snapshot.docs
-        .map((doc) => doc.data())
-        .where((r) =>
-    r.date.year == normalizedDate.year &&
-        r.date.month == normalizedDate.month &&
-        r.date.day == normalizedDate.day)
-        .toList();
-  }
-
-  String _generateRecordId(String subject, String student, DateTime date, String slot) {
-    final dateStr = DateFormat('yyyyMMdd').format(date);
-    final cleanSlot = slot.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    return '${subject}_${student}_${dateStr}_$cleanSlot';
   }
 }

@@ -1,8 +1,8 @@
 // lib/features/admin/timetable_builder_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
-import '../../core/models/notification.dart';
 import '../common/widgets/profile_avatar_action.dart';
 import '../common/widgets/app_drawer.dart';
 import '../common/widgets/async_error_widget.dart';
@@ -37,18 +37,9 @@ class TimetableBuilderPage extends ConsumerStatefulWidget {
 
 class _TimetableBuilderPageState extends ConsumerState<TimetableBuilderPage> {
   int _year = 4;
+  String _day = 'Mon';
 
-  List<String> _sectionsForYear(int y) => switch (y) {
-    1 => ['I-HE'],
-    2 => ['II-HE'],
-    3 => ['III-HE'],
-    _ => ['IV-HE'],
-  };
-
-  static const dayOrder = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  int _dayIdx(String d) => dayOrder.indexOf(d);
-  int _toMin(String hhmm) =>
-      int.parse(hhmm.substring(0, 2)) * 60 + int.parse(hhmm.substring(3, 5));
+  final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   @override
   Widget build(BuildContext context) {
@@ -56,92 +47,108 @@ class _TimetableBuilderPageState extends ConsumerState<TimetableBuilderPage> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: Builder(
-          builder: (ctx) => IconButton(
-            tooltip: 'Menu',
-            icon: const Icon(Icons.menu),
-            onPressed: () => Scaffold.of(ctx).openDrawer(),
-          ),
-        ),
         title: const Text('Timetable Builder'),
-        actions: [
-          const ProfileAvatarAction(),
-          IconButton(
-            onPressed: () => ref.invalidate(timetableBuilderProvider),
-            icon: const Icon(Icons.refresh),
-          ),
-          IconButton(
-            onPressed: () => _openEditor(context),
-            icon: const Icon(Icons.add),
-          ),
-        ],
+        actions: const [ProfileAvatarAction()],
       ),
       drawer: const AppDrawer(),
       body: asyncData.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, stack) => AsyncErrorWidget(
-          message: err.toString(),
-          onRetry: () => ref.invalidate(timetableBuilderProvider),
+            message: err.toString(),
+            onRetry: () => ref.refresh(timetableBuilderProvider)
         ),
         data: (data) {
           final allEntries = data['entries'] as List<TimetableEntry>;
-          final allSubjects = data['subjects'] as List<Subject>;
+          final subjects = data['subjects'] as List<Subject>;
+          final users = data['users'] as List<UserAccount>;
+          final teachers = users.where((u) => u.role == UserRole.teacher).toList();
 
-          final sections = _sectionsForYear(_year);
-          final entries = allEntries
-              .where((e) => sections.contains(e.section))
+          // Filter by Year (Rough mapping)
+          final sectionPrefix = _getSectionPrefix(_year);
+          final filtered = allEntries
+              .where((e) => e.section.startsWith(sectionPrefix) && e.dayOfWeek == _day)
               .toList()
-            ..sort((a, b) {
-              final d =
-              _dayIdx(a.dayOfWeek).compareTo(_dayIdx(b.dayOfWeek));
-              return d != 0
-                  ? d
-                  : _toMin(a.startTime).compareTo(_toMin(b.startTime));
-            });
-
-          final subjectsMap = {for (final s in allSubjects) s.id: s};
+            ..sort((a, b) => a.startTime.compareTo(b.startTime));
 
           return Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              // --- Controls ---
+              Container(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                padding: const EdgeInsets.all(8),
                 child: Row(
                   children: [
-                    _yearChip(1),
-                    const SizedBox(width: 6),
-                    _yearChip(2),
-                    const SizedBox(width: 6),
-                    _yearChip(3),
-                    const SizedBox(width: 6),
-                    _yearChip(4),
+                    Expanded(
+                      child: DropdownButton<int>(
+                        value: _year,
+                        isExpanded: true,
+                        items: const [
+                          DropdownMenuItem(value: 1, child: Text('1st Year')),
+                          DropdownMenuItem(value: 2, child: Text('2nd Year')),
+                          DropdownMenuItem(value: 3, child: Text('3rd Year')),
+                          DropdownMenuItem(value: 4, child: Text('4th Year')),
+                        ],
+                        onChanged: (v) => setState(() => _year = v!),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: DropdownButton<String>(
+                        value: _day,
+                        isExpanded: true,
+                        items: days.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
+                        onChanged: (v) => setState(() => _day = v!),
+                      ),
+                    ),
                   ],
                 ),
               ),
+
+              // --- List ---
               Expanded(
-                child: entries.isEmpty
-                    ? const Center(child: Text('No entries yet. Add one with +'))
-                    : ListView.separated(
-                  itemCount: entries.length,
-                  separatorBuilder: (_, __) =>
-                  const Divider(height: 0),
-                  itemBuilder: (_, i) {
-                    final e = entries[i];
-                    final subj = subjectsMap[e.subjectId];
-                    return ListTile(
-                      leading: const Icon(Icons.class_),
-                      title: Text(subj?.name ?? e.subjectId),
-                      subtitle: Text(
-                          '${e.dayOfWeek}  ${e.startTime}-${e.endTime} • Room ${e.room} • ${e.section}'),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete,
-                            color: Colors.red),
-                        onPressed: () {
-                          _handleDelete(e, subj);
-                        },
+                child: ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final entry = filtered[index];
+                    final subj = subjects.firstWhere(
+                          (s) => s.id == entry.subjectId,
+                      orElse: () => const Subject(id: '', code: '?', name: 'Unknown', department: '', semester: '', section: '', teacherId: ''),
+                    );
+
+                    return Card(
+                      child: ListTile(
+                        leading: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            entry.startTime,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                          ),
+                        ),
+                        title: Text(subj.name),
+                        subtitle: Text('${entry.room} • ${entry.section}'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit),
+                              onPressed: () => _showEditDialog(entry, subjects, teachers),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () async {
+                                await ref.read(timetableRepoProvider).delete(entry.id);
+                                ref.invalidate(timetableBuilderProvider);
+                              },
+                            ),
+                          ],
+                        ),
                       ),
-                      onTap: () {
-                        _openEditor(context, existing: e);
-                      },
                     );
                   },
                 ),
@@ -150,308 +157,133 @@ class _TimetableBuilderPageState extends ConsumerState<TimetableBuilderPage> {
           );
         },
       ),
-    );
-  }
-
-  Widget _yearChip(int y) {
-    return ChoiceChip(
-      label: Text(
-          '$y${y == 1 ? 'st' : y == 2 ? 'nd' : y == 3 ? 'rd' : 'th'} Year'),
-      selected: _year == y,
-      onSelected: (selected) {
-        if (selected) {
-          setState(() => _year = y);
-        }
-      },
-    );
-  }
-
-  Future<void> _handleDelete(
-      TimetableEntry e, Subject? subj) async {
-    final messenger = ScaffoldMessenger.of(context);
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete entry?'),
-        content: Text(
-          '${subj?.name ?? e.subjectId}\n'
-              '${e.dayOfWeek} ${e.startTime}-${e.endTime} • ${e.section}',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context, false);
-            },
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(context, true);
-            },
-            child: const Text('Delete'),
-          ),
-        ],
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showEditDialog(null, [], []), // Will handle null inside
+        child: const Icon(Icons.add),
       ),
     );
-
-    if (confirm != true) {
-      return;
-    }
-
-    await ref.read(timetableRepoProvider).delete(e.id);
-
-    if (!mounted) {
-      return;
-    }
-
-    // --- OPTIMIZATION: Fetch only relevant students ---
-    // Old: Fetch 2000 users. New: Fetch 40 users.
-    final recipients = (await ref.read(authRepoProvider).studentsInSection(e.section))
-        .map((s) => s.id);
-
-    if (recipients.isEmpty) {
-      ref.invalidate(timetableBuilderProvider);
-      return;
-    }
-
-    await ref.read(firestoreNotifierProvider).sendToUsers(
-      userIds: recipients,
-      title: 'Class Cancelled: ${subj?.name ?? e.subjectId}',
-      body:
-      '${e.dayOfWeek} ${e.startTime}-${e.endTime} • Room ${e.room} • ${e.section}',
-      type: NotificationType.classChange,
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    messenger.showSnackBar(
-      SnackBar(content: Text('Notice sent to ${e.section}')),
-    );
-
-    ref.invalidate(timetableBuilderProvider);
   }
 
-  Future<void> _openEditor(BuildContext context,
-      {TimetableEntry? existing}) async {
-    final messenger = ScaffoldMessenger.of(context);
+  String _getSectionPrefix(int year) {
+    return switch (year) {
+      1 => 'I-', 2 => 'II-', 3 => 'III-', _ => 'IV-',
+    };
+  }
 
-    final provider = ref.read(timetableBuilderProvider);
-    final repo = ref.read(timetableRepoProvider);
-
-    if (provider.value == null) {
-      messenger.showSnackBar(const SnackBar(
-          content: Text('Data not loaded yet. Try refreshing.')));
-      return;
+  Future<void> _showEditDialog(TimetableEntry? entry, List<Subject> subjects, List<UserAccount> teachers) async {
+    // If subjects/teachers empty (clicked FAB before load), refetch or guard
+    if (subjects.isEmpty) {
+      final data = await ref.read(timetableBuilderProvider.future);
+      subjects = data['subjects'] as List<Subject>;
+      final users = data['users'] as List<UserAccount>;
+      teachers = users.where((u) => u.role == UserRole.teacher).toList();
     }
 
-    final data = provider.value!;
-    final allSubjects = data['subjects'] as List<Subject>;
-    final allUsers = data['users'] as List<UserAccount>;
+    // Default or existing
+    final isNew = entry == null;
+    final id = entry?.id ?? const Uuid().v4();
+    String subjectId = entry?.subjectId ?? (subjects.isNotEmpty ? subjects.first.id : '');
+    String day = entry?.dayOfWeek ?? _day;
+    String section = entry?.section ?? '${_getSectionPrefix(_year)}HE';
 
-    final allSections = allSubjects
-        .map((s) => s.section)
-        .toSet()
-        .toList()
-      ..sort();
+    final startCtrl = TextEditingController(text: entry?.startTime ?? '09:30');
+    final endCtrl = TextEditingController(text: entry?.endTime ?? '10:30');
+    final roomCtrl = TextEditingController(text: entry?.room ?? '301');
 
-    TimetableEntry entryData =
-        existing ?? await repo.newBlankEntry();
+    final Set<String> selectedTeacherIds = (entry?.teacherIds ?? []).toSet();
 
-    final teachers = allUsers
-        .where((u) => u.role == UserRole.teacher)
-        .toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
-
-    final selectedTeacherIds = <String>{
-      ...entryData.teacherIds
-    };
-
-    final form = GlobalKey<FormState>();
-
-    String subjectId = entryData.subjectId;
-    String day = entryData.dayOfWeek;
-
-    final startCtrl =
-    TextEditingController(text: entryData.startTime);
-    final endCtrl =
-    TextEditingController(text: entryData.endTime);
-    final roomCtrl = TextEditingController(text: entryData.room);
-
-    String section = entryData.section;
-
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-    bool validTime(String v) =>
-        RegExp(r'^\d{2}:\d{2}$').hasMatch(v);
-    int toMinLocal(String v) =>
-        int.parse(v.substring(0, 2)) * 60 +
-            int.parse(v.substring(3, 5));
-
-    final ok = await showDialog<bool>(
+    await showDialog(
       context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (context, setModal) {
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) {
           return AlertDialog(
-            title: Text(
-                existing == null ? 'Add Entry' : 'Edit Entry'),
-            content: Form(
-              key: form,
-              child: SizedBox(
-                width: 460,
-                child: SingleChildScrollView(
-                  child: Column(
+            title: Text(isNew ? 'Add Class' : 'Edit Class'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    value: subjects.any((s) => s.id == subjectId) ? subjectId : null,
+                    decoration: const InputDecoration(labelText: 'Subject'),
+                    items: subjects.map((s) => DropdownMenuItem(
+                      value: s.id,
+                      child: Text(s.name, overflow: TextOverflow.ellipsis),
+                    )).toList(),
+                    onChanged: (v) => setState(() => subjectId = v!),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
                     children: [
-                      DropdownButtonFormField<String>(
-                        initialValue: subjectId,
-                        isExpanded: true,
-                        items: allSubjects
-                            .map((s) => DropdownMenuItem(
-                          value: s.id,
-                          child: Text(
-                            '${s.code} — ${s.name}',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ))
-                            .toList(),
-                        onChanged: (v) {
-                          setModal(() {
-                            subjectId = v ?? allSubjects.first.id;
-                          });
-                        },
-                        decoration: const InputDecoration(
-                            labelText: 'Subject'),
-                      ),
-                      const SizedBox(height: 8),
-
-                      DropdownButtonFormField<String>(
-                        initialValue: day,
-                        items: days
-                            .map((d) => DropdownMenuItem(
-                          value: d,
-                          child: Text(d),
-                        ))
-                            .toList(),
-                        onChanged: (v) {
-                          setModal(() {
-                            day = v ?? 'Mon';
-                          });
-                        },
-                        decoration:
-                        const InputDecoration(labelText: 'Day'),
-                      ),
-                      const SizedBox(height: 8),
-
-                      TextFormField(
-                        controller: startCtrl,
-                        decoration: const InputDecoration(
-                            labelText: 'Start (HH:mm)'),
-                        validator: (v) =>
-                        (v == null || !validTime(v)) ? 'Invalid' : null,
-                      ),
-                      const SizedBox(height: 8),
-
-                      TextFormField(
-                        controller: endCtrl,
-                        decoration: const InputDecoration(
-                            labelText: 'End (HH:mm)'),
-                        validator: (v) {
-                          if (v == null || !validTime(v)) {
-                            return 'Invalid';
-                          }
-                          if (validTime(startCtrl.text) &&
-                              toMinLocal(v) <=
-                                  toMinLocal(startCtrl.text)) {
-                            return 'End must be after start';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 8),
-
-                      TextFormField(
-                        controller: roomCtrl,
-                        decoration: const InputDecoration(
-                            labelText: 'Room'),
-                        validator: (v) =>
-                        v!.isEmpty ? 'Required' : null,
-                      ),
-                      const SizedBox(height: 8),
-
-                      DropdownButtonFormField<String>(
-                        initialValue: section,
-                        items: allSections
-                            .map((s) => DropdownMenuItem(
-                          value: s,
-                          child: Text(s),
-                        ))
-                            .toList(),
-                        onChanged: (v) {
-                          setModal(() {
-                            section =
-                                v ?? allSections.first;
-                          });
-                        },
-                        decoration: const InputDecoration(
-                            labelText: 'Section'),
-                        validator: (v) =>
-                        v!.isEmpty ? 'Required' : null,
-                      ),
-                      const SizedBox(height: 12),
-
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          'Teachers (max 2)',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyMedium
-                              ?.copyWith(fontWeight: FontWeight.w700),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: day,
+                          items: days.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
+                          onChanged: (v) => setState(() => day = v!),
+                          decoration: const InputDecoration(labelText: 'Day'),
                         ),
                       ),
-
-                      Wrap(
-                        spacing: 8,
-                        children: teachers.map((t) {
-                          final selected =
-                          selectedTeacherIds.contains(t.id);
-                          return FilterChip(
-                            label: Text(t.name),
-                            selected: selected,
-                            onSelected: (v) {
-                              setModal(() {
-                                if (v) {
-                                  if (selectedTeacherIds.length < 2) {
-                                    selectedTeacherIds.add(t.id);
-                                  }
-                                } else {
-                                  selectedTeacherIds.remove(t.id);
-                                }
-                              });
-                            },
-                          );
-                        }).toList(),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextFormField(
+                          initialValue: section,
+                          decoration: const InputDecoration(labelText: 'Section'),
+                          onChanged: (v) => section = v,
+                        ),
                       ),
                     ],
                   ),
-                ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(child: TextFormField(controller: startCtrl, decoration: const InputDecoration(labelText: 'Start (HH:MM)'))),
+                      const SizedBox(width: 8),
+                      Expanded(child: TextFormField(controller: endCtrl, decoration: const InputDecoration(labelText: 'End (HH:MM)'))),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(controller: roomCtrl, decoration: const InputDecoration(labelText: 'Room No')),
+                  const SizedBox(height: 16),
+                  const Text('Assigned Teachers', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Wrap(
+                    spacing: 8,
+                    children: teachers.map((t) {
+                      final isSel = selectedTeacherIds.contains(t.id);
+                      return FilterChip(
+                        label: Text(t.name),
+                        selected: isSel,
+                        onSelected: (sel) {
+                          setState(() {
+                            if (sel) selectedTeacherIds.add(t.id);
+                            else selectedTeacherIds.remove(t.id);
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ],
               ),
             ),
             actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context, false);
-                },
-                child: const Text('Cancel'),
-              ),
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
               FilledButton(
-                onPressed: () {
-                  if (!form.currentState!.validate()) {
-                    return;
-                  }
-                  Navigator.pop(context, true);
+                onPressed: () async {
+                  if (subjectId.isEmpty) return;
+
+                  final newEntry = TimetableEntry(
+                    id: id,
+                    subjectId: subjectId,
+                    dayOfWeek: day,
+                    startTime: startCtrl.text.trim(),
+                    endTime: endCtrl.text.trim(),
+                    room: roomCtrl.text.trim(),
+                    section: section,
+                    teacherIds: selectedTeacherIds.toList(),
+                  );
+
+                  await ref.read(timetableRepoProvider).addOrUpdate(newEntry);
+                  ref.invalidate(timetableBuilderProvider);
+
+                  if (context.mounted) Navigator.pop(context);
                 },
                 child: const Text('Save'),
               ),
@@ -460,66 +292,5 @@ class _TimetableBuilderPageState extends ConsumerState<TimetableBuilderPage> {
         },
       ),
     );
-
-    if (ok != true) {
-      return;
-    }
-
-    final newEntry = TimetableEntry(
-      id: entryData.id,
-      subjectId: subjectId,
-      dayOfWeek: day,
-      startTime: startCtrl.text.trim(),
-      endTime: endCtrl.text.trim(),
-      room: roomCtrl.text.trim(),
-      section: section,
-      teacherIds: selectedTeacherIds.toList(),
-    );
-
-    await repo.addOrUpdate(newEntry);
-
-    if (!mounted) {
-      return;
-    }
-
-    final allSubjectsList = data['subjects'] as List<Subject>;
-    final subj = allSubjectsList.firstWhere(
-          (s) => s.id == newEntry.subjectId,
-      orElse: () => Subject(
-          id: newEntry.subjectId,
-          code: 'N/A',
-          name: 'Unknown',
-          department: '',
-          semester: '',
-          section: '',
-          teacherId: ''),
-    );
-
-    // --- OPTIMIZATION: Use studentsInSection ---
-    final recipients = (await ref.read(authRepoProvider).studentsInSection(newEntry.section))
-        .map((s) => s.id);
-
-    if (recipients.isEmpty) {
-      ref.invalidate(timetableBuilderProvider);
-      return;
-    }
-
-    await ref.read(firestoreNotifierProvider).sendToUsers(
-      userIds: recipients,
-      title: 'Class Updated: ${subj.name}',
-      body:
-      '${newEntry.dayOfWeek} ${newEntry.startTime}-${newEntry.endTime} • Room ${newEntry.room}',
-      type: NotificationType.classChange,
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    messenger.showSnackBar(
-      SnackBar(content: Text('Notice sent to ${newEntry.section}')),
-    );
-
-    ref.invalidate(timetableBuilderProvider);
   }
 }

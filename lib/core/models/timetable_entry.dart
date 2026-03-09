@@ -1,15 +1,13 @@
 // lib/core/models/timetable_entry.dart
-import 'package:flutter/foundation.dart'; // For listEquals
-
 class TimetableEntry {
   final String id;
   final String subjectId;
   final String dayOfWeek; // Mon, Tue, Wed...
   final String startTime; // "08:30"
   final String endTime;   // "09:30"
-  final String room;      // NEL/NR/301
-  final String section;   // IV-HE
-  final List<String> teacherIds; // Multiple teachers allowed
+  final String room;
+  final String section;
+  final List<String> teacherIds; // Supports multiple teachers for labs
 
   const TimetableEntry({
     required this.id,
@@ -19,34 +17,11 @@ class TimetableEntry {
     required this.endTime,
     required this.room,
     required this.section,
-    this.teacherIds = const [],
+    required this.teacherIds,
   });
 
-  // Getter for easy slot display "08:30-09:30"
+  // Helper for UI to show "08:30 - 09:30"
   String get slot => '$startTime-$endTime';
-
-  // CopyWith for easier updates (e.g., swapping teachers)
-  TimetableEntry copyWith({
-    String? id,
-    String? subjectId,
-    String? dayOfWeek,
-    String? startTime,
-    String? endTime,
-    String? room,
-    String? section,
-    List<String>? teacherIds,
-  }) {
-    return TimetableEntry(
-      id: id ?? this.id,
-      subjectId: subjectId ?? this.subjectId,
-      dayOfWeek: dayOfWeek ?? this.dayOfWeek,
-      startTime: startTime ?? this.startTime,
-      endTime: endTime ?? this.endTime,
-      room: room ?? this.room,
-      section: section ?? this.section,
-      teacherIds: teacherIds ?? this.teacherIds,
-    );
-  }
 
   Map<String, dynamic> toMap() => {
     'subjectId': subjectId,
@@ -58,49 +33,17 @@ class TimetableEntry {
     'teacherIds': teacherIds,
   };
 
-  factory TimetableEntry.fromMap(String id, Map<String, dynamic>? map) {
-    final m = map ?? {};
+  // FIX: Accept ID separately
+  factory TimetableEntry.fromMap(String id, Map<String, dynamic> map) {
     return TimetableEntry(
       id: id,
-      subjectId: m['subjectId'] ?? '',
-      dayOfWeek: m['dayOfWeek'] ?? '',
-      startTime: m['startTime'] ?? '',
-      endTime: m['endTime'] ?? '',
-      room: m['room'] ?? '',
-      section: m['section'] ?? '',
-      teacherIds: (m['teacherIds'] as List?)
-          ?.map((e) => e.toString())
-          .toList() ??
-          const [],
+      subjectId: map['subjectId'] ?? '',
+      dayOfWeek: map['dayOfWeek'] ?? '',
+      startTime: map['startTime'] ?? '',
+      endTime: map['endTime'] ?? '',
+      room: map['room'] ?? '',
+      section: map['section'] ?? '',
+      teacherIds: (map['teacherIds'] as List?)?.map((e) => e.toString()).toList() ?? [],
     );
-  }
-
-  factory TimetableEntry.fromDoc(doc) => TimetableEntry.fromMap(doc.id, doc.data() as Map<String, dynamic>?);
-
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-
-    return other is TimetableEntry &&
-        other.id == id &&
-        other.subjectId == subjectId &&
-        other.dayOfWeek == dayOfWeek &&
-        other.startTime == startTime &&
-        other.endTime == endTime &&
-        other.room == room &&
-        other.section == section &&
-        listEquals(other.teacherIds, teacherIds);
-  }
-
-  @override
-  int get hashCode {
-    return id.hashCode ^
-    subjectId.hashCode ^
-    dayOfWeek.hashCode ^
-    startTime.hashCode ^
-    endTime.hashCode ^
-    room.hashCode ^
-    section.hashCode ^
-    Object.hashAll(teacherIds);
   }
 }

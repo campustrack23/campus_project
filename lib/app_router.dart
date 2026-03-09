@@ -61,8 +61,9 @@ final appRoutes = <RouteBase>[
   GoRoute(path: '/student/scan-qr', builder: (_, __) => const ScanQRPage()),
 
   // ===== TEACHER =====
+  // 🔴 FIX: Changed from '/teacher/mark/:entryId' to '/teacher/generate-qr/:entryId'
   GoRoute(
-    path: '/teacher/mark/:entryId',
+    path: '/teacher/generate-qr/:entryId',
     builder: (ctx, state) {
       final entryId = state.pathParameters['entryId'] ?? '';
       return GenerateQRPage(entryId: entryId);

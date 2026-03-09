@@ -1,36 +1,44 @@
 // lib/core/utils/time_formatter.dart
-import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 class TimeFormatter {
-  // Force 'en_US' locale to always show AM/PM, independent of device locale/settings
-  static final DateFormat twelveHourFormat = DateFormat('h:mm a', 'en_US');
-  static final DateFormat twentyFourHourFormat = DateFormat('HH:mm');
+  // Force AM/PM regardless of device locale
+  static final DateFormat _twelveHour =
+  DateFormat('h:mm a', 'en_US');
+  static final DateFormat _twentyFourHour =
+  DateFormat('HH:mm');
 
-  // Format single 24h time string ("08:30") → "8:30 AM"
-  static String formatTime(String time24h) {
-    final cleanTime = time24h.trim();
-    if (cleanTime.isEmpty || !cleanTime.contains(':')) return time24h;
+  /// "08:30" → "8:30 AM"
+  static String formatTime(String time24) {
+    final clean = time24.trim();
+    if (clean.isEmpty || !clean.contains(':')) return time24;
 
     try {
-      final parts = cleanTime.split(':');
-      if (parts.length < 2) return time24h;
+      final parts = clean.split(':');
+      if (parts.length != 2) return time24;
 
-      final time = TimeOfDay(
-        hour: int.parse(parts[0]),
-        minute: int.parse(parts[1]),
-      );
+      final hour = int.parse(parts[0]);
+      final minute = int.parse(parts[1]);
 
-      final dateTemp = DateTime(2024, 1, 1, time.hour, time.minute);
-      return twelveHourFormat.format(dateTemp);
+      final temp = DateTime(2024, 1, 1, hour, minute);
+      return _twelveHour.format(temp);
     } catch (_) {
-      return time24h;
+      return time24;
     }
   }
 
-  // Format slot "08:30-09:30" → "8:30 AM - 9:30 AM"
+  /// DateTime → "9:30 AM"
+  static String formatDateTime(DateTime dt) {
+    try {
+      return _twelveHour.format(dt);
+    } catch (_) {
+      return dt.toString();
+    }
+  }
+
+  /// "08:30-09:30" → "8:30 AM - 9:30 AM"
   static String formatSlot(String slot24h) {
-    if (slot24h.isEmpty || !slot24h.contains('-')) return slot24h;
+    if (!slot24h.contains('-')) return slot24h;
 
     final parts = slot24h.split('-');
     if (parts.length != 2) return slot24h;
@@ -38,41 +46,51 @@ class TimeFormatter {
     return '${formatTime(parts[0])} - ${formatTime(parts[1])}';
   }
 
-  // Convert 12h to 24h ("8:30 PM" → "20:30")
-  static String to24h(String time12h) {
-    try {
-      final dt = twelveHourFormat.parse(time12h);
-      return twentyFourHourFormat.format(dt);
-    } catch (_) {
-      return time12h;
-    }
-  }
-
-  // Normalize 24h time input like "8:5" → "08:05"
+  /// "8:5" → "08:05"
   static String normalize24(String time) {
     try {
       final parts = time.split(':');
       if (parts.length != 2) return time;
 
-      final hour = int.parse(parts[0]).clamp(0, 23);
-      final minute = int.parse(parts[1]).clamp(0, 59);
+      final h = int.parse(parts[0]).clamp(0, 23);
+      final m = int.parse(parts[1]).clamp(0, 59);
 
-      return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
     } catch (_) {
       return time;
     }
   }
 
-  // Validate 24h time format string "HH:mm"
-  static bool isValid24h(String time) {
-    if (!time.contains(':')) return false;
+  /// "8:30 PM" → "20:30"
+  static String to24h(String time12h) {
+    try {
+      final dt = _twelveHour.parse(time12h);
+      return _twentyFourHour.format(dt);
+    } catch (_) {
+      return time12h;
+    }
+  }
 
+  /// "09:30" → minutes from midnight (570)
+  static int toMin(String time24) {
+    try {
+      final parts = time24.split(':');
+      return int.parse(parts[0]) * 60 + int.parse(parts[1]);
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// Validate "HH:mm"
+  static bool isValid24h(String time) {
     try {
       final parts = time.split(':');
-      final hour = int.parse(parts[0]);
-      final minute = int.parse(parts[1]);
+      if (parts.length != 2) return false;
 
-      return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+      final h = int.parse(parts[0]);
+      final m = int.parse(parts[1]);
+
+      return h >= 0 && h <= 23 && m >= 0 && m <= 59;
     } catch (_) {
       return false;
     }

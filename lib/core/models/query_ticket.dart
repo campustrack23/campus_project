@@ -16,12 +16,19 @@ extension QueryStatusX on QueryStatus {
         return "Rejected";
     }
   }
+
+  static QueryStatus fromName(String? val) {
+    return QueryStatus.values.firstWhere(
+          (e) => e.name == val,
+      orElse: () => QueryStatus.open,
+    );
+  }
 }
 
 class QueryTicket {
   final String id;
   final String raisedByStudentId;
-  final String? subjectId; // Nullable if general query
+  final String? subjectId;
   final String title;
   final String message;
   final List<String> attachments;
@@ -70,7 +77,6 @@ class QueryTicket {
   }
 
   Map<String, dynamic> toMap() => {
-    'id': id,
     'raisedByStudentId': raisedByStudentId,
     'subjectId': subjectId,
     'title': title,
@@ -82,74 +88,29 @@ class QueryTicket {
     'updatedAt': Timestamp.fromDate(updatedAt),
   };
 
-  static QueryStatus _statusFrom(dynamic s) {
-    if (s is String) {
-      return QueryStatus.values.firstWhere(
-            (e) => e.name == s,
-        orElse: () => QueryStatus.open,
-      );
-    }
-    return QueryStatus.open;
-  }
-
-  factory QueryTicket.fromMap(Map<String, dynamic> map) {
+  factory QueryTicket.fromMap(String id, Map<String, dynamic> map) {
+    // SECURITY FIX: Strict parsing.
     DateTime parseDate(dynamic input) {
       if (input is Timestamp) return input.toDate();
-      if (input is String) return DateTime.tryParse(input) ?? DateTime.now();
-      if (input is DateTime) return input;
-      return DateTime.now();
+      if (input is String) return DateTime.parse(input);
+      if (input is int) return DateTime.fromMillisecondsSinceEpoch(input);
+      throw FormatException('Invalid date format in QueryTicket: $input');
     }
 
     return QueryTicket(
-      id: map['id'] as String? ?? '',
-      raisedByStudentId: map['raisedByStudentId'] as String? ?? '',
-      subjectId: map['subjectId'] as String?,
-      title: map['title'] as String? ?? 'No Title',
-      message: map['message'] as String? ?? '',
+      id: id,
+      raisedByStudentId: map['raisedByStudentId'] ?? '',
+      subjectId: map['subjectId'],
+      title: map['title'] ?? 'No Title',
+      message: map['message'] ?? '',
       attachments: (map['attachments'] as List?)
           ?.map((e) => e.toString())
           .toList() ??
           const [],
-      status: _statusFrom(map['status']),
-      assignedToTeacherId: map['assignedToTeacherId'] as String?,
+      status: QueryStatusX.fromName(map['status']),
+      assignedToTeacherId: map['assignedToTeacherId'],
       createdAt: parseDate(map['createdAt']),
       updatedAt: parseDate(map['updatedAt']),
     );
-  }
-
-  factory QueryTicket.fromDoc(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>? ?? {};
-    return QueryTicket.fromMap({...data, 'id': doc.id});
-  }
-
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-
-    return other is QueryTicket &&
-        other.id == id &&
-        other.raisedByStudentId == raisedByStudentId &&
-        other.subjectId == subjectId &&
-        other.title == title &&
-        other.message == message &&
-        other.attachments.length == attachments.length && // simple list check
-        other.status == status &&
-        other.assignedToTeacherId == assignedToTeacherId &&
-        other.createdAt == createdAt &&
-        other.updatedAt == updatedAt;
-  }
-
-  @override
-  int get hashCode {
-    return id.hashCode ^
-    raisedByStudentId.hashCode ^
-    subjectId.hashCode ^
-    title.hashCode ^
-    message.hashCode ^
-    attachments.hashCode ^
-    status.hashCode ^
-    assignedToTeacherId.hashCode ^
-    createdAt.hashCode ^
-    updatedAt.hashCode;
   }
 }

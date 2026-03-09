@@ -50,7 +50,6 @@ final subjectGradingProvider = FutureProvider.autoDispose.family<SubjectGradingD
   final teacher = await authRepo.currentUser();
   if (teacher == null) throw Exception('Not logged in');
 
-  // This method now exists in the repository
   final subject = await ttRepo.subjectById(subjectId);
   if (subject == null) throw Exception('Subject not found');
 
@@ -148,7 +147,7 @@ class _InternalMarksPageState extends ConsumerState<InternalMarksPage> {
                 if (subjects.isEmpty) {
                   return const Center(child: Text('You are not the lead teacher for any subjects.'));
                 }
-                // FIX: Use standard DropdownButton inside InputDecorator to avoid FormField deprecation
+
                 return InputDecorator(
                   decoration: const InputDecoration(
                     labelText: 'Subject',
@@ -265,11 +264,12 @@ class _GradingList extends ConsumerWidget {
 
   Future<void> _saveMarks(WidgetRef ref, InternalMarks marks) async {
     await ref.read(internalMarksRepoProvider).updateMarks(marks);
-    ref.invalidate(subjectGradingProvider(marks.subjectId));
+    // UI FIX: Do NOT invalidate the provider here. This prevents the list from
+    // rebuilding and stealing focus, allowing smooth continuous grading.
     if (ref.context.mounted) {
       ScaffoldMessenger.of(ref.context).showSnackBar(const SnackBar(
-        content: Text('Saved'),
-        duration: Duration(milliseconds: 800),
+        content: Text('Saved Successfully'),
+        duration: Duration(milliseconds: 1000),
       ));
     }
   }
@@ -296,9 +296,13 @@ class _StudentMarkTileState extends State<_StudentMarkTile> {
   final TextEditingController _assignmentCtrl = TextEditingController();
   final TextEditingController _testCtrl = TextEditingController();
 
+  // Local state to keep UI updated without full rebuilds
+  double _localTotal = 0;
+
   @override
   void initState() {
     super.initState();
+    _localTotal = widget.marks.totalMarks;
     _updateControllers();
   }
 
@@ -306,6 +310,7 @@ class _StudentMarkTileState extends State<_StudentMarkTile> {
   void didUpdateWidget(covariant _StudentMarkTile oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.marks != widget.marks) {
+      _localTotal = widget.marks.totalMarks;
       _updateControllers();
     }
   }
@@ -327,6 +332,11 @@ class _StudentMarkTileState extends State<_StudentMarkTile> {
     _assignmentCtrl.text = assign.toStringAsFixed(0);
     _testCtrl.text = test.toStringAsFixed(0);
 
+    // Update local total instantly for the teacher
+    setState(() {
+      _localTotal = assign + test + widget.marks.attendanceMarks;
+    });
+
     widget.onSave(assign, test);
   }
 
@@ -346,7 +356,7 @@ class _StudentMarkTileState extends State<_StudentMarkTile> {
       title: Text(widget.student.name),
       subtitle: Text('CR: ${widget.student.collegeRollNo ?? 'N/A'}'),
       trailing: Text(
-        '${widget.marks.totalMarks.toStringAsFixed(0)} / 30',
+        '${_localTotal.toStringAsFixed(0)} / 30',
         style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
       ),
       children: [

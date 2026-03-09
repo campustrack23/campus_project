@@ -1,18 +1,29 @@
-// lib/core/services/firestore_notifier.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/notification.dart'; // Import to use the Enum
+
+import '../models/notification.dart';
+import 'notification_service.dart';
 
 class FirestoreNotifier {
   final FirebaseFirestore _db;
-  FirestoreNotifier(this._db);
+  final NotificationService _localService;
 
-  /// Sends a notification to a list of users.
-  /// Automatically handles Firestore's 500-operation batch limit.
+  /// Constructor accepts both Firestore & NotificationService
+  FirestoreNotifier({
+    FirebaseFirestore? firestore,
+    required NotificationService localService,
+  })  : _db = firestore ?? FirebaseFirestore.instance,
+        _localService = localService;
+
+  // ---------------------------------------------------------------------------
+  // SEND TO MULTIPLE USERS (AUTO HANDLES 500 BATCH LIMIT)
+  // ---------------------------------------------------------------------------
+
   Future<void> sendToUsers({
     required Iterable<String> userIds,
     required String title,
     required String body,
-    required NotificationType type, // Use Enum for safety
+    required NotificationType type,
+    Map<String, dynamic>? data,
   }) async {
     if (userIds.isEmpty) return;
 
@@ -21,41 +32,66 @@ class FirestoreNotifier {
 
     for (var i = 0; i < allUsers.length; i += batchLimit) {
       final batch = _db.batch();
-      final end = (i + batchLimit < allUsers.length) ? i + batchLimit : allUsers.length;
+      final end =
+      (i + batchLimit < allUsers.length) ? i + batchLimit : allUsers.length;
       final chunk = allUsers.sublist(i, end);
 
-      final now = FieldValue.serverTimestamp();
+      final now = DateTime.now();
 
       for (final uid in chunk) {
         final docRef = _db.collection('notifications').doc();
 
-        batch.set(docRef, {
-          'id': docRef.id, // Store ID for easier local access
-          'userId': uid,
-          'title': title,
-          'body': body,
-          'type': type.name,
-          'createdAt': now,
-          'read': false, // Use 'read' to match model naming
-        });
+        final notification = AppNotification(
+          id: docRef.id,
+          userId: uid,
+          title: title,
+          body: body,
+          type: type,
+          read: false,
+          createdAt: now,
+          data: data,
+        );
+
+        batch.set(docRef, notification.toMap());
       }
 
       await batch.commit();
     }
   }
 
-  /// Sends a notification to a single user for convenience.
+  // ---------------------------------------------------------------------------
+  // SEND TO SINGLE USER (CONVENIENCE)
+  // ---------------------------------------------------------------------------
+
   Future<void> sendToUser({
     required String userId,
     required String title,
     required String body,
     required NotificationType type,
+    Map<String, dynamic>? data,
   }) async {
     await sendToUsers(
       userIds: [userId],
       title: title,
       body: body,
       type: type,
+      data: data,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // OPTIONAL: LOCAL NOTIFICATION HELPER
+  // ---------------------------------------------------------------------------
+
+  Future<void> sendLocalOnly({
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    await _localService.showLocal(
+      title,
+      body,
+      payload: payload,
     );
   }
 }

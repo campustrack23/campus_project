@@ -31,7 +31,8 @@ final studentMarksProvider = FutureProvider.autoDispose((ref) async {
   final subjects = results[1] as List<Subject>;
   final users = results[2] as List<UserAccount>;
 
-  final subjectsMap = {for (var s in subjects) s.id: s.name};
+  // FIX: Map ID -> Subject Object (so we can access subject.teacherId later)
+  final subjectsMap = {for (var s in subjects) s.id: s};
   final teachersMap = {for (var u in users) u.id: u.name};
 
   // Group marks by subject
@@ -85,7 +86,14 @@ class InternalMarksPage extends ConsumerWidget {
               itemBuilder: (context, index) {
                 final subjectId = subjectIds[index];
                 final marksList = data.groupedMarks[subjectId]!;
-                final subjectName = data.subjectsMap[subjectId] ?? 'Unknown Subject';
+
+                // FIX: Get Subject object to retrieve Name and TeacherID
+                final subject = data.subjectsMap[subjectId];
+                final subjectName = subject?.name ?? 'Unknown Subject';
+
+                // Get Teacher Name via Subject
+                final teacherId = subject?.teacherId;
+                final teacherName = data.teachersMap[teacherId] ?? 'Unknown Teacher';
 
                 return Card(
                   elevation: 0,
@@ -101,7 +109,6 @@ class InternalMarksPage extends ConsumerWidget {
                         ),
                       ),
                       ...marksList.map((marks) {
-                        final teacherName = data.teachersMap[marks.teacherId] ?? 'Unknown Teacher';
                         return _MarkDetailsTile(
                           marks: marks,
                           teacherName: teacherName,

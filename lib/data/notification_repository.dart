@@ -1,110 +1,101 @@
 // lib/data/notification_repository.dart
-import 'package:uuid/uuid.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../core/models/notification.dart';
-import '../core/services/local_storage.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class NotificationRepository {
-  final LocalStorage store;
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  NotificationRepository(this.store);
+  CollectionReference<AppNotification> get _notifRef =>
+      _db.collection('notifications').withConverter<AppNotification>(
+        fromFirestore: (snap, _) => AppNotification.fromMap(snap.id, snap.data()!),
+        toFirestore: (n, _) => n.toMap(),
+      );
 
-  List<AppNotification> _all() {
-    final list = store.readList(LocalStorage.kNotifications);
-    final notifications = list.map(AppNotification.fromMap).toList();
-    notifications.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return notifications;
-  }
-
-  Future<void> _saveAll(List<AppNotification> list) async {
-    if (list.length > 100) {
-      list = list.sublist(list.length - 100);
-    }
-    await store.writeList(
-      LocalStorage.kNotifications,
-      list.map((e) => e.toMap()).toList(),
-    );
-  }
-
-  Future<void> save(AppNotification notification) async {
-    final list = _all();
-    final index = list.indexWhere((n) => n.id == notification.id);
-
-    if (index != -1) {
-      list[index] = notification;
-    } else {
-      list.add(notification);
-    }
-    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    await _saveAll(list);
-  }
-
-  Future<void> createLocalAlert({
-    required String userId,
-    required String title,
-    required String body,
-    required NotificationType type,
-  }) async {
-    final list = _all();
-    list.add(AppNotification(
-      id: const Uuid().v4(),
-      userId: userId,
-      title: title,
-      body: body,
-      type: type,
-      createdAt: DateTime.now(),
-      read: false,
-    ));
-    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    await _saveAll(list);
-  }
-
-  List<AppNotification> unreadForUser(String userId) =>
-      _all().where((n) => n.userId == userId && !n.read).toList();
-
-  int unreadCount(String userId) => unreadForUser(userId).length;
-
-  List<AppNotification> forUser(String userId) =>
-      _all().where((n) => n.userId == userId).toList();
-
-  Future<void> markAllRead(String userId) async {
-    final list = _all();
-    bool changed = false;
-    for (int i = 0; i < list.length; i++) {
-      if (list[i].userId == userId && !list[i].read) {
-        list[i] = list[i].copyWith(read: true);
-        changed = true;
-      }
-    }
-    if (changed) {
-      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      await _saveAll(list);
+  // SECURITY FIX: Centralized identity verification to prevent BOLA
+  void _verifyIdentity(String requestedUserId) {
+    final currentUid = _auth.currentUser?.uid;
+    if (currentUid == null || currentUid != requestedUserId) {
+      throw Exception('Unauthorized: Access control violation. You can only access your own notifications.');
     }
   }
+
+  // --- READ METHODS ---
+
+  Stream<List<AppNotification>> listenForUser(String userId) {
+    _verifyIdentity(userId);
+    return _notifRef
+        .where('userId', isEqualTo: userId)
+        .orderBy('createdAt', descending: true)
+        .limit(50)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) => d.data()).toList());
+  }
+
+  Future<List<AppNotification>> forUser(String userId) async {
+    _verifyIdentity(userId);
+    final snapshot = await _notifRef
+        .where('userId', isEqualTo: userId)
+        .orderBy('createdAt', descending: true)
+        .limit(20)
+        .get();
+    return snapshot.docs.map((d) => d.data()).toList();
+  }
+
+  Future<int> unreadCount(String userId) async {
+    _verifyIdentity(userId);
+    final snapshot = await _notifRef
+        .where('userId', isEqualTo: userId)
+        .where('read', isEqualTo: false)
+        .count()
+        .get();
+    return snapshot.count ?? 0;
+  }
+
+  // --- WRITE METHODS ---
 
   Future<void> markRead(String notificationId) async {
-    final list = _all();
-    final idx = list.indexWhere((n) => n.id == notificationId);
-    if (idx != -1 && !list[idx].read) {
-      list[idx] = list[idx].copyWith(read: true);
-      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      await _saveAll(list);
+    // SECURITY FIX: Instead of blindly updating, ensure we only update if it belongs to current user.
+    // In a production app, this should also be secured via Firestore Security Rules.
+    final currentUid = _auth.currentUser?.uid;
+    if (currentUid == null) throw Exception('Unauthorized');
+
+    final docRef = _notifRef.doc(notificationId);
+    final doc = await docRef.get();
+
+    if (doc.exists && doc.data()?.userId == currentUid) {
+      await docRef.update({'read': true});
+    } else {
+      throw Exception('Unauthorized: Cannot modify this notification.');
     }
+  }
+
+  Future<void> markAllRead(String userId) async {
+    _verifyIdentity(userId);
+    final snapshot = await _notifRef
+        .where('userId', isEqualTo: userId)
+        .where('read', isEqualTo: false)
+        .get();
+
+    if (snapshot.docs.isEmpty) return;
+
+    final batch = _db.batch();
+    for (final doc in snapshot.docs) {
+      batch.update(doc.reference, {'read': true});
+    }
+    await batch.commit();
   }
 
   Future<void> clearForUser(String userId) async {
-    final list = _all()..removeWhere((n) => n.userId == userId);
-    await _saveAll(list);
-  }
+    _verifyIdentity(userId);
+    final snapshot = await _notifRef.where('userId', isEqualTo: userId).get();
+    if (snapshot.docs.isEmpty) return;
 
-  Future<void> delete(String notificationId) async {
-    final list = _all()..removeWhere((n) => n.id == notificationId);
-    await _saveAll(list);
+    final batch = _db.batch();
+    for (final doc in snapshot.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
   }
 }
-
-/// RIVERPOD PROVIDER
-final notifRepoProvider = Provider<NotificationRepository>((ref) {
-  final store = ref.watch(localStorageProvider);
-  return NotificationRepository(store);
-});

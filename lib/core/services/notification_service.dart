@@ -2,7 +2,6 @@
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _local =
@@ -10,10 +9,15 @@ class NotificationService {
 
   bool _initialized = false;
 
+  // ---------------------------------------------------------------------------
+  // INITIALIZATION
+  // ---------------------------------------------------------------------------
+
   Future<void> init({Function(String? payload)? onNotificationTap}) async {
     if (_initialized) return;
 
-    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidInit =
+    AndroidInitializationSettings('@mipmap/ic_launcher');
 
     const iosInit = DarwinInitializationSettings(
       requestAlertPermission: false,
@@ -40,34 +44,38 @@ class NotificationService {
     debugPrint('NotificationService: Initialized');
   }
 
-  Future<void> requestPermissions() async {
-    if (!_initialized) await init();
+  // ---------------------------------------------------------------------------
+  // PERMISSIONS
+  // ---------------------------------------------------------------------------
 
-    try {
-      final androidImpl = _local
-          .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
-      if (androidImpl != null) {
-        await androidImpl.requestNotificationsPermission();
-      }
+  Future<bool> requestPermissions() async {
+    final android = _local.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    final ios = _local.resolvePlatformSpecificImplementation<
+        IOSFlutterLocalNotificationsPlugin>();
 
-      final iosImpl =
-      _local.resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
-      if (iosImpl != null) {
-        await iosImpl.requestPermissions(alert: true, badge: true, sound: true);
-      }
-
-      final macImpl =
-      _local.resolvePlatformSpecificImplementation<MacOSFlutterLocalNotificationsPlugin>();
-      if (macImpl != null) {
-        await macImpl.requestPermissions(alert: true, badge: true, sound: true);
-      }
-    } catch (e) {
-      debugPrint('NotificationService: Error requesting permissions: $e');
+    bool? granted = false;
+    if (android != null) {
+      granted = await android.requestNotificationsPermission();
+    } else if (ios != null) {
+      granted = await ios.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
     }
+    return granted ?? false;
   }
 
-  Future<void> showLocal(String title, String body, {String? payload}) async {
+  // ---------------------------------------------------------------------------
+  // SHOW NOTIFICATION
+  // ---------------------------------------------------------------------------
+
+  Future<void> showLocal(
+      String title,
+      String body, {
+        String? payload,
+      }) async {
     if (!_initialized) await init();
 
     const androidDetails = AndroidNotificationDetails(
@@ -91,22 +99,25 @@ class NotificationService {
       iOS: iosDetails,
     );
 
+    // Unique notification ID
     final millisRemainder =
     DateTime.now().millisecondsSinceEpoch.remainder(100000);
     final randomFallback = Random().nextInt(1000);
     final notificationId = millisRemainder + randomFallback;
 
-    await _local.show(
-      notificationId,
-      title,
-      body,
-      details,
-      payload: payload,
-    );
+    try {
+      await _local.show(
+        notificationId,
+        title,
+        body,
+        details,
+        payload: payload,
+      );
+    } catch (e) {
+      // Safe fallback (won't crash app)
+      debugPrint('🔔 LOCAL NOTIFICATION: $title - $body');
+    }
   }
 }
-
-/// RIVERPOD PROVIDER
-final notifServiceProvider = Provider<NotificationService>((ref) {
-  return NotificationService();
-});
+// FIXED: Removed duplicate 'notifServiceProvider' definition.
+// It is defined in lib/main.dart.

@@ -33,14 +33,14 @@ class StudentRemark {
   }
 
   Map<String, dynamic> toMap() => {
-    'id': id,
     'teacherId': teacherId,
     'studentId': studentId,
     'tag': tag,
     'updatedAt': Timestamp.fromDate(updatedAt),
   };
 
-  factory StudentRemark.fromMap(Map<String, dynamic> m) {
+  // FIX: Accept ID separately
+  factory StudentRemark.fromMap(String id, Map<String, dynamic> m) {
     DateTime parseDate(dynamic input) {
       if (input is Timestamp) return input.toDate();
       if (input is String) return DateTime.tryParse(input) ?? DateTime.now();
@@ -49,37 +49,11 @@ class StudentRemark {
     }
 
     return StudentRemark(
-      id: m['id'] ?? '',
+      id: id, // <--- Use passed ID
       teacherId: m['teacherId'] ?? '',
       studentId: m['studentId'] ?? '',
       tag: m['tag'] ?? 'General',
       updatedAt: parseDate(m['updatedAt']),
     );
-  }
-
-  factory StudentRemark.fromDoc(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>? ?? {};
-    return StudentRemark.fromMap({...data, 'id': doc.id});
-  }
-
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-
-    return other is StudentRemark &&
-        other.id == id &&
-        other.teacherId == teacherId &&
-        other.studentId == studentId &&
-        other.tag == tag &&
-        other.updatedAt == updatedAt;
-  }
-
-  @override
-  int get hashCode {
-    return id.hashCode ^
-    teacherId.hashCode ^
-    studentId.hashCode ^
-    tag.hashCode ^
-    updatedAt.hashCode;
   }
 }

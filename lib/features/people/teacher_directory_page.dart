@@ -15,7 +15,7 @@ import '../../main.dart';
 // Provider to fetch teachers and subjects
 final teacherDirectoryProvider = FutureProvider.autoDispose((ref) async {
   final results = await Future.wait([
-    ref.watch(allUsersProvider.future),
+    ref.watch(authRepoProvider).allUsers(),
     ref.watch(timetableRepoProvider).allSubjects(),
   ]);
 
@@ -36,166 +36,113 @@ class TeacherDirectoryPage extends ConsumerStatefulWidget {
 }
 
 class _TeacherDirectoryPageState extends ConsumerState<TeacherDirectoryPage> {
-  String _q = '';
-
   @override
   Widget build(BuildContext context) {
     final asyncData = ref.watch(teacherDirectoryProvider);
 
     return Scaffold(
       appBar: AppBar(
-        leading: Builder(
-          builder: (ctx) => IconButton(
-            tooltip: 'Menu',
-            icon: const Icon(Icons.menu),
-            onPressed: () => Scaffold.of(ctx).openDrawer(),
-          ),
-        ),
-        title: const Text('Teacher Directory'),
+        title: const Text('Faculty Directory'),
         actions: const [ProfileAvatarAction()],
       ),
       drawer: const AppDrawer(),
-      body: Column(
-        children: [
-          // Search Bar
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: TextField(
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search),
-                hintText: 'Name, Subject, or Qualification...',
-                fillColor: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
-                filled: true,
-                contentPadding: EdgeInsets.zero,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(30),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-              onChanged: (v) => setState(() => _q = v),
-            ),
-          ),
+      body: asyncData.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (err, stack) => AsyncErrorWidget(
+          message: err.toString(),
+          onRetry: () => ref.refresh(teacherDirectoryProvider),
+        ),
+        data: (data) {
+          final teachers = data.teachers;
+          final subjects = data.allSubjects;
 
-          // Teacher List
-          Expanded(
-            child: asyncData.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (err, stack) => AsyncErrorWidget(
-                message: err.toString(),
-                onRetry: () => ref.invalidate(teacherDirectoryProvider),
-              ),
-              data: (data) {
-                final teachers = data.teachers;
-                final allSubjects = data.allSubjects;
+          if (teachers.isEmpty) {
+            return const Center(child: Text('No teachers found.'));
+          }
 
-                // Filter based on search query
-                final filtered = teachers.where((t) {
-                  final subjects = allSubjects.where((s) => s.teacherId == t.id).toList();
+          return ListView.separated(
+            padding: const EdgeInsets.all(16),
+            itemCount: teachers.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 16),
+            itemBuilder: (context, index) {
+              final teacher = teachers[index];
 
-                  if (_q.isEmpty) return true;
-                  final q = _q.toLowerCase();
+              // Find subjects taught by this teacher
+              final teachingSubjects = subjects
+                  .where((s) => s.teacherId == teacher.id)
+                  .map((s) => '${s.name} (${s.code})')
+                  .toList();
 
-                  final nameMatch = t.name.toLowerCase().contains(q);
-                  final emailMatch = (t.email ?? '').toLowerCase().contains(q);
-                  final qualsMatch = t.qualifications.any((qual) => qual.toLowerCase().contains(q));
-                  final subjectMatch = subjects.any((s) => s.name.toLowerCase().contains(q));
-
-                  return nameMatch || emailMatch || qualsMatch || subjectMatch;
-                }).toList();
-
-                if (filtered.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+              return Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: ExpansionTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                    child: Text(teacher.name.isNotEmpty ? teacher.name[0] : '?'),
+                  ),
+                  title: Text(
+                    teacher.name,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text(teacher.email ?? teacher.phone),
+                  children: [
+                    // CONTACT INFO
+                    _buildSection(
+                      context,
+                      title: 'Contact',
+                      icon: Icons.contact_phone_outlined,
                       children: [
-                        Icon(Icons.person_off_outlined, size: 64, color: Colors.grey[400]),
-                        const SizedBox(height: 16),
-                        Text('No teachers found.', style: TextStyle(color: Colors.grey[600])),
+                        if (teacher.email != null)
+                          ListTile(
+                            leading: const Icon(Icons.email_outlined, size: 20),
+                            title: Text(teacher.email!),
+                            dense: true,
+                            onTap: () => _launchUrl('mailto:${teacher.email}'),
+                          ),
+                        ListTile(
+                          leading: const Icon(Icons.phone_outlined, size: 20),
+                          title: Text(teacher.phone),
+                          dense: true,
+                          onTap: () => _launchUrl('tel:${teacher.phone}'),
+                        ),
                       ],
                     ),
-                  );
-                }
 
-                return RefreshIndicator(
-                  onRefresh: () => ref.refresh(teacherDirectoryProvider.future),
-                  child: ListView.separated(
-                    itemCount: filtered.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final teacher = filtered[index];
-                      final subjects =
-                      allSubjects.where((s) => s.teacherId == teacher.id).toList();
+                    // QUALIFICATIONS
+                    if (teacher.qualifications.isNotEmpty)
+                      _buildSection(
+                        context,
+                        title: 'Qualifications',
+                        icon: Icons.school_outlined,
+                        children: teacher.qualifications
+                            .map((q) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Text('• $q'),
+                        ))
+                            .toList(),
+                      ),
 
-                      return ExpansionTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                          foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
-                          child:
-                          Text(teacher.name.isNotEmpty ? teacher.name[0].toUpperCase() : '?'),
-                        ),
-                        title: Text(teacher.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(
-                          subjects.isNotEmpty
-                              ? subjects.map((s) => s.name).take(2).join(', ') +
-                              (subjects.length > 2 ? '...' : '')
-                              : (teacher.email ?? teacher.phone),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        childrenPadding: const EdgeInsets.only(bottom: 16),
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    icon: const Icon(Icons.phone, size: 18),
-                                    label: const Text('Call'),
-                                    onPressed: () => _launchUrl('tel:${teacher.phone}'),
-                                  ),
-                                ),
-                                if (teacher.email != null) ...[
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      icon: const Icon(Icons.email, size: 18),
-                                      label: const Text('Email'),
-                                      onPressed: () => _launchUrl('mailto:${teacher.email}'),
-                                    ),
-                                  ),
-                                ]
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          const Divider(indent: 16, endIndent: 16),
-                          if (teacher.qualifications.isNotEmpty)
-                            _buildSection(
-                              context,
-                              title: 'Qualifications',
-                              icon: Icons.school,
-                              children:
-                              teacher.qualifications.map((q) => Text('• $q')).toList(),
-                            ),
-                          if (subjects.isNotEmpty)
-                            _buildSection(
-                              context,
-                              title: 'Subjects Taught',
-                              icon: Icons.book,
-                              children: subjects
-                                  .map((s) => Text('• ${s.code} - ${s.name} (Sec ${s.section})'))
-                                  .toList(),
-                            ),
-                        ],
-                      );
-                    },
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
+                    // SUBJECTS
+                    if (teachingSubjects.isNotEmpty)
+                      _buildSection(
+                        context,
+                        title: 'Subjects Taught',
+                        icon: Icons.book_outlined,
+                        children: teachingSubjects
+                            .map((s) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Text('• $s'),
+                        ))
+                            .toList(),
+                      ),
+                    const SizedBox(height: 12),
+                  ],
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -236,12 +183,6 @@ class _TeacherDirectoryPageState extends ConsumerState<TeacherDirectoryPage> {
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not launch requested action')),
-        );
-      }
     }
   }
 }

@@ -1,6 +1,7 @@
 // lib/features/people/students_directory_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../common/widgets/profile_avatar_action.dart';
 import '../common/widgets/app_drawer.dart';
@@ -35,24 +36,17 @@ final directoryProvider = FutureProvider.autoDispose((ref) async {
 // =====================================================
 //               STUDENTS DIRECTORY PAGE
 // =====================================================
+
 class StudentsDirectoryPage extends ConsumerStatefulWidget {
-  final int initialYear;
-  const StudentsDirectoryPage({super.key, this.initialYear = 1});
+  const StudentsDirectoryPage({super.key});
 
   @override
-  ConsumerState<StudentsDirectoryPage> createState() => _StudentsDirectoryPageState();
+  ConsumerState<StudentsDirectoryPage> createState() =>
+      _StudentsDirectoryPageState();
 }
 
 class _StudentsDirectoryPageState extends ConsumerState<StudentsDirectoryPage> {
-  late int _year;
-  String _q = '';
-  String _alpha = 'ALL';
-
-  @override
-  void initState() {
-    super.initState();
-    _year = widget.initialYear;
-  }
+  String _query = '';
 
   @override
   Widget build(BuildContext context) {
@@ -60,14 +54,7 @@ class _StudentsDirectoryPageState extends ConsumerState<StudentsDirectoryPage> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: Builder(
-          builder: (ctx) => IconButton(
-            tooltip: 'Menu',
-            icon: const Icon(Icons.menu),
-            onPressed: () => Scaffold.of(ctx).openDrawer(),
-          ),
-        ),
-        title: Text('Students • Year $_year'),
+        title: const Text('Students Directory'),
         actions: const [ProfileAvatarAction()],
       ),
       drawer: const AppDrawer(),
@@ -75,142 +62,84 @@ class _StudentsDirectoryPageState extends ConsumerState<StudentsDirectoryPage> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, stack) => AsyncErrorWidget(
           message: err.toString(),
-          onRetry: () => ref.invalidate(directoryProvider),
+          onRetry: () => ref.refresh(directoryProvider),
         ),
         data: (data) {
           final me = data['me'] as UserAccount;
-          final allStudents = data['students'] as List<UserAccount>;
+          final students = data['students'] as List<UserAccount>;
           final remarks = data['remarks'] as List<StudentRemark>;
 
-          final isAdmin = me.role == UserRole.admin;
-          final isTeacher = me.role == UserRole.teacher;
-
-          // Filter by year
-          final students = allStudents.where((s) => (s.year ?? 1) == _year).toList()
-            ..sort((a, b) => (a.collegeRollNo ?? '').compareTo(b.collegeRollNo ?? ''));
-
-          // Filter by search query
-          final filteredSearch = students.where((s) {
-            if (_q.isEmpty) return true;
-            final q = _q.toLowerCase();
+          final filtered = students.where((s) {
+            final q = _query.toLowerCase();
             return s.name.toLowerCase().contains(q) ||
-                (s.collegeRollNo ?? '').contains(q) ||
-                (s.examRollNo ?? '').contains(q) ||
-                (s.section ?? '').toLowerCase().contains(q) ||
-                s.phone.contains(q);
+                (s.collegeRollNo ?? '').toLowerCase().contains(q);
           }).toList();
-
-          // Alphabetic filter
-          final filtered = (_alpha == 'ALL')
-              ? filteredSearch
-              : filteredSearch.where((s) => s.name.isNotEmpty && s.name.toUpperCase().startsWith(_alpha)).toList();
-
-          // Map studentId to remark tag
-          final tagByStudent = {for (final r in remarks) r.studentId: r.tag};
 
           return Column(
             children: [
-              // Year filter chips
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: Row(
-                  children: [
-                    for (final y in [1, 2, 3, 4]) ...[
-                      _yearChip(y),
-                      const SizedBox(width: 8),
-                    ]
-                  ],
-                ),
-              ),
-
-              // Search bar
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.all(16),
                 child: TextField(
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.search),
-                    hintText: 'Search by Name, Roll No, Section, or Phone',
-                    fillColor: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
-                    filled: true,
-                    contentPadding: EdgeInsets.zero,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(30),
-                      borderSide: BorderSide.none,
-                    ),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'Search by name or roll number...',
+                    border: OutlineInputBorder(),
                   ),
-                  onChanged: (v) => setState(() => _q = v),
+                  onChanged: (v) => setState(() => _query = v),
                 ),
               ),
-
-              // Alphabet filter
-              _buildAlphabetFilter(),
-
-              // Student list
               Expanded(
-                child: filtered.isEmpty
-                    ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.person_search, size: 64, color: Colors.grey[400]),
-                      const SizedBox(height: 16),
-                      Text('No students found', style: TextStyle(color: Colors.grey[600])),
-                    ],
-                  ),
-                )
-                    : ListView.separated(
+                child: ListView.separated(
                   itemCount: filtered.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
-                  itemBuilder: (_, i) {
-                    final s = filtered[i];
-                    final ids = [
-                      if (s.collegeRollNo != null) 'CR: ${s.collegeRollNo}',
-                      if (s.section != null) 'Sec: ${s.section}',
-                    ].join(' • ');
-
-                    final tag = isTeacher ? (tagByStudent[s.id] ?? '') : '';
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final student = filtered[index];
+                    final studentRemarks =
+                    remarks.where((r) => r.studentId == student.id).toList();
 
                     return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       leading: CircleAvatar(
-                        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                        foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
-                        child: Text(s.name.isNotEmpty ? s.name[0].toUpperCase() : '?'),
+                        child: Text(student.name.isNotEmpty ? student.name[0] : '?'),
                       ),
-                      title: Text(s.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      title: Text(student.name),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (ids.isNotEmpty) Text(ids),
-                          Text(s.phone, style: Theme.of(context).textTheme.bodySmall),
+                          Text(
+                              '${student.section ?? "N/A"} • ${student.collegeRollNo ?? "No Roll"}'),
+                          if (studentRemarks.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Wrap(
+                                spacing: 4,
+                                children: studentRemarks
+                                    .map((r) => Chip(
+                                  label: Text(
+                                    r.tag,
+                                    style: const TextStyle(fontSize: 10),
+                                  ),
+                                  visualDensity: VisualDensity.compact,
+                                  padding: EdgeInsets.zero,
+                                ))
+                                    .toList(),
+                              ),
+                            ),
                         ],
                       ),
-                      trailing: isTeacher
-                          ? ActionChip(
-                        avatar: Icon(Icons.label, size: 16, color: Theme.of(context).colorScheme.primary),
-                        label: Text(tag.isEmpty ? 'Add Remark' : tag),
-                        backgroundColor: tag.isNotEmpty ? Theme.of(context).colorScheme.primaryContainer : null,
-                        onPressed: () async {
-                          final newTag = await _pickTag(context, tag);
-                          if (newTag == null) return;
-                          await ref.read(remarkRepoProvider).upsertRemark(
-                            teacherId: me.id,
-                            studentId: s.id,
-                            tag: newTag,
-                          );
-                          ref.invalidate(directoryProvider);
-                        },
-                      )
-                          : (isAdmin
-                          ? Switch(
-                        value: s.isActive,
-                        onChanged: (v) async {
-                          await ref.read(authRepoProvider).setActive(s.id, v);
-                          ref.invalidate(directoryProvider);
-                        },
-                      )
-                          : null),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.phone),
+                            onPressed: () => _launchUrl('tel:${student.phone}'),
+                          ),
+                          if (me.role == UserRole.teacher)
+                            IconButton(
+                              icon: const Icon(Icons.edit_note),
+                              onPressed: () => _addRemark(context, ref, me.id, student.id),
+                            ),
+                        ],
+                      ),
                     );
                   },
                 ),
@@ -222,115 +151,88 @@ class _StudentsDirectoryPageState extends ConsumerState<StudentsDirectoryPage> {
     );
   }
 
-  Widget _yearChip(int y) => ChoiceChip(
-    label: Text('$y${y == 1 ? 'st' : y == 2 ? 'nd' : y == 3 ? 'rd' : 'th'} Year'),
-    selected: _year == y,
-    onSelected: (_) => setState(() => _year = y),
-    showCheckmark: false,
-  );
+  Future<void> _launchUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
 
-  Widget _buildAlphabetFilter() {
-    final letters = ['ALL', ...List.generate(26, (i) => String.fromCharCode(65 + i))];
+  Future<void> _addRemark(
+      BuildContext context, WidgetRef ref, String teacherId, String studentId) async {
+    final customCtrl = TextEditingController();
+    String? selected;
 
-    return SizedBox(
-      height: 46,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        itemCount: letters.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (_, i) {
-          final l = letters[i];
-          return ChoiceChip(
-            label: Text(l),
-            selected: _alpha == l,
-            onSelected: (_) => setState(() => _alpha = l),
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) {
+          final tags = ['Good Performance', 'Needs Improvement', 'Absentee', 'Late'];
+
+          return Padding(
+            padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+                left: 16,
+                right: 16,
+                top: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Add Remark',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  children: tags.map((t) {
+                    final isSel = selected == t;
+                    return ChoiceChip(
+                      label: Text(t),
+                      selected: isSel,
+                      onSelected: (v) => setState(() => selected = v ? t : null),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: customCtrl,
+                  decoration: const InputDecoration(labelText: 'Custom tag (optional)'),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Cancel')),
+                    const Spacer(),
+                    FilledButton(
+                      onPressed: () {
+                        final custom = customCtrl.text.trim();
+                        if (custom.isNotEmpty) {
+                          selected = custom;
+                        }
+                        Navigator.pop(context, selected ?? '');
+                      },
+                      child: const Text('Save'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16), // Padding for bottom
+              ],
+            ),
           );
         },
       ),
-    );
-  }
-
-  Future<String?> _pickTag(BuildContext context, String? current) async {
-    String? selected = (current?.isEmpty ?? true) ? null : current;
-    final customCtrl = TextEditingController(
-      text: (selected == null ||
-          ['Good', 'Average', 'Needs Improvement'].contains(selected))
-          ? ''
-          : selected,
-    );
-
-    return showModalBottomSheet<String>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      builder: (_) {
-        final bottomInset = MediaQuery.of(context).viewPadding.bottom;
-
-        return Padding(
-          padding: EdgeInsets.fromLTRB(16, 8, 16, 16 + (bottomInset > 0 ? bottomInset : 8)),
-          child: StatefulBuilder(
-            builder: (BuildContext context, setModalState) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('Set Student Tag (private)',
-                      style: TextStyle(fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 12),
-
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      ChoiceChip(
-                          label: const Text('Good'),
-                          selected: selected == 'Good',
-                          onSelected: (_) => setModalState(() => selected = 'Good')),
-                      ChoiceChip(
-                          label: const Text('Average'),
-                          selected: selected == 'Average',
-                          onSelected: (_) => setModalState(() => selected = 'Average')),
-                      ChoiceChip(
-                          label: const Text('Needs Improvement'),
-                          selected: selected == 'Needs Improvement',
-                          onSelected: (_) => setModalState(() => selected = 'Needs Improvement')),
-                    ],
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  TextField(
-                    controller: customCtrl,
-                    decoration: const InputDecoration(labelText: 'Custom tag (optional)'),
-                  ),
-
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('Cancel')),
-                      const Spacer(),
-                      FilledButton(
-                        onPressed: () {
-                          final custom = customCtrl.text.trim();
-                          if (custom.isNotEmpty) {
-                            selected = custom;
-                          }
-                          Navigator.pop(context, selected ?? '');
-                        },
-                        child: const Text('Save'),
-                      ),
-                    ],
-                  ),
-                ],
-              );
-            },
-          ),
-        );
-      },
-    );
+    ).then((val) async {
+      if (val != null && val is String && val.isNotEmpty) {
+        await ref.read(remarkRepoProvider).upsertRemark(
+            teacherId: teacherId, studentId: studentId, tag: val);
+        ref.invalidate(directoryProvider);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Remark saved')));
+        }
+      }
+    });
   }
 }

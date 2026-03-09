@@ -13,7 +13,8 @@ class RemarkRepository {
 
   CollectionReference<StudentRemark> get _remarksRef =>
       _db.collection('remarks').withConverter<StudentRemark>(
-        fromFirestore: (snapshot, _) => StudentRemark.fromMap(snapshot.data()!),
+        // FIX: Pass snapshot.id to fromMap
+        fromFirestore: (snapshot, _) => StudentRemark.fromMap(snapshot.id, snapshot.data()!),
         toFirestore: (remark, _) => remark.toMap(),
       );
 

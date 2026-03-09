@@ -1,8 +1,7 @@
-// lib/features/common/widgets/profile_avatar_action.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/models/user.dart';
+
 import '../../../main.dart';
 
 class ProfileAvatarAction extends ConsumerWidget {
@@ -13,9 +12,12 @@ class ProfileAvatarAction extends ConsumerWidget {
     final authState = ref.watch(authStateProvider);
 
     return authState.when(
+      // -----------------------------------------------------------------------
+      // DATA
+      // -----------------------------------------------------------------------
       data: (user) {
+        // Not logged in → show login icon
         if (user == null) {
-          // Not logged in: show login icon
           return IconButton(
             icon: const Icon(Icons.login),
             tooltip: 'Login',
@@ -23,8 +25,8 @@ class ProfileAvatarAction extends ConsumerWidget {
           );
         }
 
-        // Logged in: show avatar with first letter
-        final initial = user.name.trim().isNotEmpty
+        // Logged in → show avatar
+        final String initial = user.name.trim().isNotEmpty
             ? user.name.trim()[0].toUpperCase()
             : '?';
 
@@ -35,8 +37,10 @@ class ProfileAvatarAction extends ConsumerWidget {
             onTap: () => context.push('/profile'),
             child: CircleAvatar(
               radius: 18,
-              backgroundColor: Theme.of(context).colorScheme.primary,
-              foregroundColor: Theme.of(context).colorScheme.onPrimary,
+              backgroundColor:
+              Theme.of(context).colorScheme.secondaryContainer,
+              foregroundColor:
+              Theme.of(context).colorScheme.onSecondaryContainer,
               child: Text(
                 initial,
                 style: const TextStyle(
@@ -48,6 +52,10 @@ class ProfileAvatarAction extends ConsumerWidget {
           ),
         );
       },
+
+      // -----------------------------------------------------------------------
+      // LOADING
+      // -----------------------------------------------------------------------
       loading: () => const Padding(
         padding: EdgeInsets.only(right: 16),
         child: SizedBox(
@@ -56,7 +64,11 @@ class ProfileAvatarAction extends ConsumerWidget {
           child: CircularProgressIndicator(strokeWidth: 2),
         ),
       ),
-      error: (_, __) => const SizedBox(),
+
+      // -----------------------------------------------------------------------
+      // ERROR
+      // -----------------------------------------------------------------------
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 }

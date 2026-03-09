@@ -13,7 +13,8 @@ class QueryRepository {
 
   CollectionReference<QueryTicket> get _queriesRef =>
       _db.collection('queries').withConverter<QueryTicket>(
-        fromFirestore: (snapshot, _) => QueryTicket.fromMap(snapshot.data()!),
+        // FIX: Pass snap.id to fromMap
+        fromFirestore: (snapshot, _) => QueryTicket.fromMap(snapshot.id, snapshot.data()!),
         toFirestore: (query, _) => query.toMap(),
       );
 
@@ -34,15 +35,6 @@ class QueryRepository {
     return snapshot.docs.map((doc) => doc.data()).toList();
   }
 
-  /// Queries with status 'open' (optionally assign to teacher in extended versions)
-  Future<List<QueryTicket>> getOpenQueries() async {
-    final snapshot = await _queriesRef
-        .where('status', isEqualTo: 'open')
-        .orderBy('createdAt', descending: true)
-        .get();
-    return snapshot.docs.map((doc) => doc.data()).toList();
-  }
-
   // --- WRITE METHODS ---
 
   /// Create a new Query Ticket
@@ -54,8 +46,11 @@ class QueryRepository {
   }) async {
     final now = DateTime.now();
 
+    // ID is generated here for local object, but Firestore doc ID will match it
+    final String docId = const Uuid().v4();
+
     final ticket = QueryTicket(
-      id: const Uuid().v4(),
+      id: docId,
       raisedByStudentId: raisedByStudentId,
       subjectId: subjectId,
       title: title,
@@ -65,7 +60,7 @@ class QueryRepository {
       updatedAt: now,
     );
 
-    await _queriesRef.doc(ticket.id).set(ticket);
+    await _queriesRef.doc(docId).set(ticket);
     return ticket;
   }
 
@@ -86,13 +81,8 @@ class QueryRepository {
     await _firestoreNotifier.sendToUsers(
       userIds: [ticket.raisedByStudentId],
       title: 'Query Update',
-      body: 'Your query "${ticket.title}" is now ${status.name}.',
+      body: 'Your query "${ticket.title}" is now ${status.label}',
       type: NotificationType.queryUpdate,
     );
-  }
-
-  /// Delete a query ticket by id
-  Future<void> deleteQuery(String id) async {
-    await _queriesRef.doc(id).delete();
   }
 }

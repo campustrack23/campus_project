@@ -1,4 +1,3 @@
-// lib/features/about/about_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -8,15 +7,16 @@ import '../common/widgets/app_drawer.dart';
 class AboutPage extends ConsumerWidget {
   const AboutPage({super.key});
 
-  static const String appVersion = "1.0.0";
+  static const String appVersion = '1.0.0';
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final titleStyle =
-    theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold);
-    final headingStyle =
-    theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold);
+
+    final titleStyle = theme.textTheme.titleLarge
+        ?.copyWith(fontWeight: FontWeight.bold);
+    final headingStyle = theme.textTheme.titleMedium
+        ?.copyWith(fontWeight: FontWeight.bold);
 
     return Scaffold(
       appBar: AppBar(
@@ -34,12 +34,19 @@ class AboutPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text('CampusTrack', style: titleStyle),
+          const Icon(Icons.school, size: 72, color: Colors.grey),
+          const SizedBox(height: 12),
+
+          Center(child: Text('CampusTrack', style: titleStyle)),
           const SizedBox(height: 6),
-          const Text(
-            'Your smart campus assistant for attendance, internal marks, notifications and timetables.',
+          const Center(
+            child: Text(
+              'Your smart campus assistant for attendance, internal marks, notifications and timetables.',
+              textAlign: TextAlign.center,
+            ),
           ),
-          const Divider(height: 32),
+
+          const Divider(height: 40),
 
           Text('Key Features', style: headingStyle),
           const SizedBox(height: 12),
@@ -51,7 +58,7 @@ class AboutPage extends ConsumerWidget {
             'Teachers generate a time-limited QR code. Students scan to mark attendance automatically.',
           ),
           const _FeatureTile(
-            icon: Icons.assessment,
+            icon: Icons.assessment_outlined,
             title: 'Internal Marks Management',
             subtitle:
             'Automated calculation of attendance scores and internal assessments.',
@@ -69,30 +76,33 @@ class AboutPage extends ConsumerWidget {
             'Raise queries directly to the administration and track their status in real-time.',
           ),
 
-          const Divider(height: 32),
+          const Divider(height: 40),
 
           Text('Developed By', style: headingStyle),
           const SizedBox(height: 12),
+
           const ListTile(
             leading: CircleAvatar(child: Icon(Icons.code)),
             title: Text('Mohit Chauhan & Yash Gulati'),
             subtitle: Text('Full Stack Flutter Developers'),
           ),
 
-          const Divider(height: 32),
+          const Divider(height: 40),
 
-          Text('Technology', style: headingStyle),
+          Text('Technology Stack', style: headingStyle),
           const SizedBox(height: 12),
 
           const _FeatureTile(
             icon: Icons.flutter_dash,
             title: 'Flutter & Riverpod',
-            subtitle: 'High-performance cross-platform UI with robust state management.',
+            subtitle:
+            'High-performance cross-platform UI with robust state management.',
           ),
           const _FeatureTile(
-            icon: Icons.cloud_circle,
+            icon: Icons.cloud_circle_outlined,
             title: 'Firebase',
-            subtitle: 'Powered by Firestore, Cloud Functions, and Firebase Auth.',
+            subtitle:
+            'Firestore, Firebase Auth, and Cloud Functions for backend services.',
           ),
 
           const SizedBox(height: 40),
@@ -110,6 +120,10 @@ class AboutPage extends ConsumerWidget {
     );
   }
 }
+
+// -----------------------------------------------------------------------------
+// FEATURE TILE
+// -----------------------------------------------------------------------------
 
 class _FeatureTile extends StatelessWidget {
   final IconData icon;
@@ -129,7 +143,10 @@ class _FeatureTile extends StatelessWidget {
     return ListTile(
       minLeadingWidth: 40,
       leading: Icon(icon, size: 28, color: primary),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+      title: Text(
+        title,
+        style: const TextStyle(fontWeight: FontWeight.bold),
+      ),
       subtitle: Text(subtitle),
     );
   }
