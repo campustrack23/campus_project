@@ -33,13 +33,9 @@ import 'core/services/notification_sync_service.dart';
 // GLOBAL PROVIDERS (Central Registry)
 // -----------------------------------------------------------------------------
 
-// DEFINE THE MISSING NOTIFICATION SERVICE PROVIDER HERE
 final notifServiceProvider = Provider<NotificationService>((ref) {
   throw UnimplementedError('notifServiceProvider must be overridden in main.dart');
 });
-
-// NOTE: localStorageProvider is imported from core/services/local_storage.dart
-// to prevent the "White Screen of Death" duplicate provider bug!
 
 final authRepoProvider = Provider<AuthRepository>((ref) {
   final storage = ref.watch(localStorageProvider);
@@ -97,7 +93,7 @@ class RouterNotifier extends ChangeNotifier {
 final routerNotifierProvider = Provider((ref) => RouterNotifier(ref));
 
 // -----------------------------------------------------------------------------
-// ROUTER
+// ROUTER (WITH FIXED ROLE-BASED GUARDS)
 // -----------------------------------------------------------------------------
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -116,16 +112,17 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       final user = authState.valueOrNull;
       final isLoggedIn = user != null;
-      final isLoggingIn = state.uri.path == '/login';
-      final isSplash = state.uri.path == '/';
+      final path = state.uri.path;
+      final isLoggingIn = path == '/login';
+      final isSplash = path == '/';
 
       // 2. Not Logged In -> Force Login
       if (!isLoggedIn) {
         return isLoggingIn ? null : '/login';
       }
 
-      // 3. Logged In -> Redirect to Role Home (if currently on Login or Splash)
-      if (isLoggingIn || isSplash) {
+      // Helper function to get the correct home route for a user
+      String getHomeRoute() {
         switch (user.role) {
           case UserRole.student:
             return '/home/student';
@@ -136,7 +133,33 @@ final routerProvider = Provider<GoRouter>((ref) {
         }
       }
 
-      // 4. Default: Allow navigation
+      // 3. Logged In -> Redirect away from Login or Splash
+      if (isLoggingIn || isSplash) {
+        return getHomeRoute();
+      }
+
+      // -----------------------------------------------------------------------
+      // 🚨 SECURITY FIX: ROLE-BASED URL GUARDS
+      // Added trailing slashes (e.g., '/admin/') so it doesn't accidentally
+      // block shared routes like '/students/directory' or '/teachers/directory'
+      // -----------------------------------------------------------------------
+
+      // If a non-admin tries to access /admin/ or /home/admin
+      if (path.startsWith('/admin/') || path == '/home/admin') {
+        if (user.role != UserRole.admin) return getHomeRoute();
+      }
+
+      // If a non-teacher tries to access /teacher/ or /home/teacher
+      if (path.startsWith('/teacher/') || path == '/home/teacher') {
+        if (user.role != UserRole.teacher) return getHomeRoute();
+      }
+
+      // If a non-student tries to access /student/ or /home/student
+      if (path.startsWith('/student/') || path == '/home/student') {
+        if (user.role != UserRole.student) return getHomeRoute();
+      }
+
+      // 4. Default: Allow navigation for shared routes (/profile, /notifications, /teachers/directory, etc.)
       return null;
     },
     routes: appRoutes,
@@ -163,7 +186,6 @@ Future<void> main() async {
   runApp(
     ProviderScope(
       overrides: [
-        // Overrides both services seamlessly to prevent crashes
         localStorageProvider.overrideWithValue(localStorage),
         notifServiceProvider.overrideWithValue(notifService),
       ],
