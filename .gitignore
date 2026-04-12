@@ -73,3 +73,5 @@ campus_track_android.iml
 
 # Generated pubspec.lock
 pubspec.lock
+
+.env

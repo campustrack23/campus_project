@@ -3,13 +3,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // Added dotenv import
 
 import 'firebase_options.dart';
 import 'theme.dart';
 
-import 'core/models/role.dart';
 import 'core/models/user.dart';
 import 'core/services/local_storage.dart';
 import 'core/providers/theme_provider.dart';
@@ -77,101 +76,14 @@ final authStateProvider = StreamProvider<UserAccount?>((ref) {
 });
 
 // -----------------------------------------------------------------------------
-// ROUTER STATE SYNCHRONIZATION
-// -----------------------------------------------------------------------------
-
-class RouterNotifier extends ChangeNotifier {
-  final Ref _ref;
-  RouterNotifier(this._ref) {
-    _ref.listen<AsyncValue<UserAccount?>>(
-      authStateProvider,
-          (_, __) => notifyListeners(),
-    );
-  }
-}
-
-final routerNotifierProvider = Provider((ref) => RouterNotifier(ref));
-
-// -----------------------------------------------------------------------------
-// ROUTER (WITH FIXED ROLE-BASED GUARDS)
-// -----------------------------------------------------------------------------
-
-final routerProvider = Provider<GoRouter>((ref) {
-  final notifier = ref.watch(routerNotifierProvider);
-
-  return GoRouter(
-    initialLocation: '/',
-    refreshListenable: notifier,
-    redirect: (context, state) {
-      final authState = ref.read(authStateProvider);
-
-      // 1. Prevent premature redirection during load phase
-      if (authState.isLoading || authState.hasError) {
-        return null; // Stay on Splash
-      }
-
-      final user = authState.valueOrNull;
-      final isLoggedIn = user != null;
-      final path = state.uri.path;
-      final isLoggingIn = path == '/login';
-      final isSplash = path == '/';
-
-      // 2. Not Logged In -> Force Login
-      if (!isLoggedIn) {
-        return isLoggingIn ? null : '/login';
-      }
-
-      // Helper function to get the correct home route for a user
-      String getHomeRoute() {
-        switch (user.role) {
-          case UserRole.student:
-            return '/home/student';
-          case UserRole.teacher:
-            return '/home/teacher';
-          case UserRole.admin:
-            return '/home/admin';
-        }
-      }
-
-      // 3. Logged In -> Redirect away from Login or Splash
-      if (isLoggingIn || isSplash) {
-        return getHomeRoute();
-      }
-
-      // -----------------------------------------------------------------------
-      // 🚨 SECURITY FIX: ROLE-BASED URL GUARDS
-      // Added trailing slashes (e.g., '/admin/') so it doesn't accidentally
-      // block shared routes like '/students/directory' or '/teachers/directory'
-      // -----------------------------------------------------------------------
-
-      // If a non-admin tries to access /admin/ or /home/admin
-      if (path.startsWith('/admin/') || path == '/home/admin') {
-        if (user.role != UserRole.admin) return getHomeRoute();
-      }
-
-      // If a non-teacher tries to access /teacher/ or /home/teacher
-      if (path.startsWith('/teacher/') || path == '/home/teacher') {
-        if (user.role != UserRole.teacher) return getHomeRoute();
-      }
-
-      // If a non-student tries to access /student/ or /home/student
-      if (path.startsWith('/student/') || path == '/home/student') {
-        if (user.role != UserRole.student) return getHomeRoute();
-      }
-
-      // 4. Default: Allow navigation for shared routes (/profile, /notifications, /teachers/directory, etc.)
-      return null;
-    },
-    routes: appRoutes,
-  );
-});
-
-// -----------------------------------------------------------------------------
 // MAIN ENTRY POINT
 // -----------------------------------------------------------------------------
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Load the environment variables before doing anything else
+  await dotenv.load(fileName: ".env");
 
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,

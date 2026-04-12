@@ -1,12 +1,9 @@
 // lib/core/models/notification.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
 
 enum NotificationType {
-  general,
-  classChange,
-  lowAttendance,
-  queryUpdate,
-  remarkSaved,
+  general, classChange, lowAttendance, queryUpdate, remarkSaved,
 }
 
 class AppNotification {
@@ -17,7 +14,7 @@ class AppNotification {
   final NotificationType type;
   final bool read;
   final DateTime createdAt;
-  final Map<String, dynamic>? data; // Extra data like sessionId or queryId
+  final Map<String, dynamic>? data;
 
   const AppNotification({
     required this.id,
@@ -62,7 +59,6 @@ class AppNotification {
     'data': data,
   };
 
-  // FIX: Accept ID separately
   factory AppNotification.fromMap(String id, Map<String, dynamic> map) {
     return AppNotification(
       id: id,
@@ -74,7 +70,7 @@ class AppNotification {
         orElse: () => NotificationType.general,
       ),
       read: map['read'] ?? false,
-      createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      createdAt: DateParser.parse(map['createdAt'], fieldName: 'AppNotification.createdAt'),
       data: map['data'] as Map<String, dynamic>?,
     );
   }

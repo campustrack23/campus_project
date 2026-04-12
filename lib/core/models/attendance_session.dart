@@ -1,5 +1,6 @@
 // lib/core/models/attendance_session.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
 
 class AttendanceSession {
   final String id;
@@ -29,21 +30,14 @@ class AttendanceSession {
     'isActive': isActive,
   };
 
-  // FIX: Accept ID separately
   factory AttendanceSession.fromMap(String id, Map<String, dynamic> map) {
-    DateTime parseDate(dynamic input) {
-      if (input is Timestamp) return input.toDate();
-      if (input is String) return DateTime.tryParse(input) ?? DateTime.now();
-      return DateTime.now();
-    }
-
     return AttendanceSession(
       id: id,
       teacherId: map['teacherId'] ?? '',
       subjectId: map['subjectId'] ?? '',
       section: map['section'] ?? '',
       slot: map['slot'] ?? '',
-      createdAt: parseDate(map['createdAt']),
+      createdAt: DateParser.parse(map['createdAt'], fieldName: 'AttendanceSession.createdAt'),
       isActive: map['isActive'] ?? true,
     );
   }

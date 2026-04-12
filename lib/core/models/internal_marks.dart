@@ -1,18 +1,19 @@
 // lib/core/models/internal_marks.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
 
 class InternalMarks {
   final String id;
   final String subjectId;
   final String studentId;
-  final String teacherId; // Added to track who graded
+  final String teacherId;
   final double assignmentMarks; // Max 12
   final double testMarks;       // Max 12
   final double attendanceMarks; // Max 6
   final double totalMarks;      // Max 30
   final bool isFrozen;
   final bool isVisibleToStudent;
-  final DateTime updatedAt;     // Added timestamp
+  final DateTime updatedAt;
 
   const InternalMarks({
     required this.id,
@@ -28,7 +29,6 @@ class InternalMarks {
     required this.updatedAt,
   });
 
-  // FIX: Added 'empty' factory for new entries
   factory InternalMarks.empty({
     required String subjectId,
     required String studentId,
@@ -46,13 +46,6 @@ class InternalMarks {
       isFrozen: false,
       isVisibleToStudent: false,
       updatedAt: DateTime.now(),
-    );
-  }
-
-  // FIX: Added logic to sum up marks
-  InternalMarks recalculateTotal() {
-    return copyWith(
-      totalMarks: assignmentMarks + testMarks + attendanceMarks,
     );
   }
 
@@ -98,13 +91,7 @@ class InternalMarks {
   };
 
   factory InternalMarks.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final map = doc.data()!;
-    DateTime parseDate(dynamic input) {
-      if (input is Timestamp) return input.toDate();
-      if (input is String) return DateTime.tryParse(input) ?? DateTime.now();
-      return DateTime.now();
-    }
-
+    final map = doc.data() ?? {};
     return InternalMarks(
       id: doc.id,
       subjectId: map['subjectId'] ?? '',
@@ -116,7 +103,7 @@ class InternalMarks {
       totalMarks: (map['totalMarks'] as num?)?.toDouble() ?? 0.0,
       isFrozen: map['isFrozen'] ?? false,
       isVisibleToStudent: map['isVisibleToStudent'] ?? false,
-      updatedAt: parseDate(map['updatedAt']),
+      updatedAt: DateParser.parse(map['updatedAt'], fieldName: 'InternalMarks.updatedAt'),
     );
   }
 }

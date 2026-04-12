@@ -23,6 +23,7 @@ class TeacherDashboardVM {
   final Map<String, Subject> subjectsMap;
   final Map<String, String> teacherNamesMap;
   final Map<String, String> subjectLeadMap;
+  final String currentTeacherId;
 
   TeacherDashboardVM({
     required this.allEntries,
@@ -32,6 +33,7 @@ class TeacherDashboardVM {
     required this.subjectsMap,
     required this.teacherNamesMap,
     required this.subjectLeadMap,
+    required this.currentTeacherId,
   });
 }
 
@@ -56,7 +58,7 @@ final teacherDashboardProvider = FutureProvider.autoDispose<TeacherDashboardVM>(
     authRepo.allUsers(),
   ]);
 
-  final allEntries = results[0] as List<TimetableEntry>;
+  final rawEntries = results[0] as List<TimetableEntry>;
   final subjects = results[1] as List<Subject>;
   final users = results[2] as List<UserAccount>;
 
@@ -64,25 +66,36 @@ final teacherDashboardProvider = FutureProvider.autoDispose<TeacherDashboardVM>(
   final teacherNamesMap = {for (var u in users) u.id: u.name};
   final subjectLeadMap = {for (var s in subjects) s.id: teacherNamesMap[s.teacherId] ?? 'Unknown'};
 
+  // 🔴 CRITICAL FIX: Normalize days from Seeder ("1" -> "Mon")
+  final normalizedEntries = rawEntries.map((e) {
+    String day = e.dayOfWeek;
+    const seederMap = {'1': 'Mon', '2': 'Tue', '3': 'Wed', '4': 'Thu', '5': 'Fri', '6': 'Sat'};
+    final safeDay = seederMap[day] ?? day;
+
+    final dataMap = e.toMap();
+    dataMap['dayOfWeek'] = safeDay;
+    return TimetableEntry.fromMap(e.id, dataMap);
+  }).toList();
+
   // Determine Today's Classes
-  // Logic: 1=Mon...7=Sun
   final todayNum = DateTime.now().weekday;
   final dayMap = {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun'};
   final todayStr = dayMap[todayNum] ?? 'Mon';
 
-  final todaysClasses = allEntries.where((e) => e.dayOfWeek == todayStr).toList();
+  final todaysClasses = normalizedEntries.where((e) => e.dayOfWeek == todayStr).toList();
   todaysClasses.sort((a, b) => a.startTime.compareTo(b.startTime));
 
   UpcomingClass? next;
 
   return TeacherDashboardVM(
-    allEntries: allEntries,
+    allEntries: normalizedEntries,
     nextClass: next,
     todaysClasses: todaysClasses,
-    canMarkNext: true, // simplified
+    canMarkNext: true,
     subjectsMap: subjectsMap,
     teacherNamesMap: teacherNamesMap,
     subjectLeadMap: subjectLeadMap,
+    currentTeacherId: user.id,
   );
 });
 
@@ -158,10 +171,7 @@ class TeacherHomePage extends ConsumerWidget {
                         subtitle: Text('${entry.room} • ${entry.section}'),
                         trailing: FilledButton.icon(
                           onPressed: () async {
-                            // FIX: Updated path to match main.dart route
                             await context.push('/teacher/generate-qr/${entry.id}');
-
-                            // Refresh upon return
                             ref.invalidate(teacherDashboardProvider);
                           },
                           icon: const Icon(Icons.qr_code, size: 18),
@@ -260,14 +270,47 @@ class _TimetablePreview extends StatefulWidget {
 
 class _TimetablePreviewState extends State<_TimetablePreview> {
   int _selectedDay = DateTime.now().weekday; // 1=Mon
+  int? _selectedYear; // null = All years
 
   @override
   Widget build(BuildContext context) {
     final dayMap = {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat'};
     final dayKey = dayMap[_selectedDay] ?? 'Mon';
 
+    // 🔴 FILTER LOGIC: Filter entries based on the selected year chip
+    final filteredEntries = widget.vm.allEntries.where((e) {
+      if (_selectedYear == null) return true;
+      if (_selectedYear == 1 && e.section.startsWith('I-')) return true;
+      if (_selectedYear == 2 && e.section.startsWith('II-')) return true;
+      if (_selectedYear == 3 && e.section.startsWith('III-')) return true;
+      if (_selectedYear == 4 && e.section.startsWith('IV-')) return true;
+      return false;
+    }).toList();
+
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // --- 🔴 YEAR FILTERS ---
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              _buildYearChip('All', null),
+              const SizedBox(width: 8),
+              _buildYearChip('1st Yr', 1),
+              const SizedBox(width: 8),
+              _buildYearChip('2nd Yr', 2),
+              const SizedBox(width: 8),
+              _buildYearChip('3rd Yr', 3),
+              const SizedBox(width: 8),
+              _buildYearChip('4th Yr', 4),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // --- DAY FILTERS ---
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -286,6 +329,8 @@ class _TimetablePreviewState extends State<_TimetablePreview> {
           ),
         ),
         const SizedBox(height: 8),
+
+        // --- TIMETABLE GRID ---
         Container(
           height: 300,
           margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -293,18 +338,42 @@ class _TimetablePreviewState extends State<_TimetablePreview> {
             border: Border.all(color: Colors.grey.withOpacity(0.2)),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: TimetableGrid(
+          child: filteredEntries.isEmpty
+              ? Center(
+            child: Text(
+              _selectedYear == null
+                  ? 'No classes scheduled.'
+                  : 'No classes for Year $_selectedYear.',
+              style: const TextStyle(color: Colors.grey),
+            ),
+          )
+              : TimetableGrid(
             days: [dayKey],
-            periodStarts: const ['08:30', '09:30', '10:30', '11:30', '12:30', '13:30', '14:30', '15:30', '16:30'],
+            periodStarts: const ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'],
             periodLabels: const ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'],
-            entries: widget.vm.allEntries,
+            entries: filteredEntries, // Pass the filtered list here!
             subjectCodes: {for (var k in widget.vm.subjectsMap.keys) k: widget.vm.subjectsMap[k]?.code ?? ''},
             subjectLeadTeacherId: {for (var k in widget.vm.subjectsMap.keys) k: widget.vm.subjectsMap[k]?.teacherId ?? ''},
             teacherNames: widget.vm.teacherNamesMap,
             todayKey: dayKey,
+            currentTeacherId: widget.vm.currentTeacherId,
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildYearChip(String label, int? yearValue) {
+    final isSelected = _selectedYear == yearValue;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (bool selected) {
+        setState(() {
+          _selectedYear = selected ? yearValue : null;
+        });
+      },
+      selectedColor: Theme.of(context).colorScheme.primaryContainer,
     );
   }
 }

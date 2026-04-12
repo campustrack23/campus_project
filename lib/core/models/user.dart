@@ -1,9 +1,9 @@
 // lib/core/models/user.dart
-
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'role.dart';
+import '../utils/date_parser.dart';
 
 class UserAccount {
   final String id;
@@ -86,30 +86,19 @@ class UserAccount {
   }
 
   factory UserAccount.fromMap(String id, Map<String, dynamic> map) {
-    // SECURITY FIX: Strict parsing. Do not mask corrupted data with DateTime.now()
-    DateTime parseDate(dynamic input) {
-      if (input is Timestamp) return input.toDate();
-      if (input is int) return DateTime.fromMillisecondsSinceEpoch(input);
-      if (input is String) return DateTime.parse(input);
-      throw FormatException('Invalid or missing date format in UserAccount: $input');
-    }
-
     return UserAccount(
       id: id,
       role: UserRoleX.fromString(map['role']),
       name: map['name'] ?? '',
       email: map['email'],
       phone: map['phone'] ?? '',
-      createdAt: parseDate(map['createdAt']),
+      createdAt: DateParser.parse(map['createdAt'], fieldName: 'UserAccount.createdAt'),
       isActive: map['isActive'] ?? true,
       collegeRollNo: map['collegeRollNo'],
       examRollNo: map['examRollNo'],
       section: map['section'],
       year: map['year'],
-      qualifications: (map['qualifications'] as List?)
-          ?.map((e) => e.toString())
-          .toList() ??
-          const [],
+      qualifications: (map['qualifications'] as List?)?.map((e) => e.toString()).toList() ?? const [],
       idCardPhotoPath: map['idCardPhotoPath'],
     );
   }
@@ -117,7 +106,6 @@ class UserAccount {
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
-
     return other is UserAccount &&
         other.id == id &&
         other.role == role &&
@@ -136,18 +124,7 @@ class UserAccount {
 
   @override
   int get hashCode => Object.hash(
-    id,
-    role,
-    name,
-    email,
-    phone,
-    isActive,
-    createdAt,
-    collegeRollNo,
-    examRollNo,
-    section,
-    year,
-    idCardPhotoPath,
-    Object.hashAll(qualifications),
+    id, role, name, email, phone, isActive, createdAt, collegeRollNo,
+    examRollNo, section, year, idCardPhotoPath, Object.hashAll(qualifications),
   );
 }

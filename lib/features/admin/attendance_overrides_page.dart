@@ -1,7 +1,7 @@
+// lib/features/admin/attendance_overrides_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../common/widgets/profile_avatar_action.dart';
 import '../common/widgets/app_drawer.dart';
@@ -17,8 +17,7 @@ final adminAttendanceProvider = FutureProvider.autoDispose((ref) async {
   final ttRepo = ref.watch(timetableRepoProvider);
   final authRepo = ref.watch(authRepoProvider);
 
-  // Now 'allRecords()' is valid
-  final records = await attRepo.allRecords();
+  final records = await attRepo.allRecords(limit: 500); // Limit read size
   final subjects = await ttRepo.allSubjects();
   final students = await authRepo.allStudents();
 
@@ -37,8 +36,18 @@ class AttendanceOverridesPage extends ConsumerStatefulWidget {
 }
 
 class _AttendanceOverridesPageState extends ConsumerState<AttendanceOverridesPage> {
-  DateTime _date = DateTime.now();
   final Map<String, AttendanceStatus> _edited = {};
+  String _searchQuery = '';
+  bool _isSaving = false;
+
+  final UserAccount _unknownUser = UserAccount(
+    id: '?',
+    role: UserRole.student,
+    name: 'Unknown Student',
+    phone: '',
+    isActive: false,
+    createdAt: DateTime.now(), // Safe initialisation
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -47,93 +56,112 @@ class _AttendanceOverridesPageState extends ConsumerState<AttendanceOverridesPag
     return Scaffold(
       appBar: AppBar(
         title: const Text('Attendance Overrides'),
-        actions: [
-          if (_edited.isNotEmpty)
-            FilledButton.icon(
-              icon: const Icon(Icons.save),
-              label: const Text('Save'),
-              onPressed: () => _saveChanges(context),
-            ),
-          const SizedBox(width: 8),
-          const ProfileAvatarAction(),
-        ],
+        actions: const [ProfileAvatarAction()],
       ),
       drawer: const AppDrawer(),
       body: asyncData.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, stack) => AsyncErrorWidget(
-            message: err.toString(),
-            onRetry: () => ref.refresh(adminAttendanceProvider)
+          message: err.toString(),
+          onRetry: () => ref.invalidate(adminAttendanceProvider),
         ),
         data: (data) {
-          final records = data['records'] as List<AttendanceRecord>;
+          final allRecords = data['records'] as List<AttendanceRecord>;
           final subjects = data['subjects'] as List<Subject>;
           final students = data['students'] as List<UserAccount>;
 
-          // Filter records by selected date
-          final dayRecords = records.where((r) {
-            final rLocal = r.date.toLocal();
-            return rLocal.year == _date.year &&
-                rLocal.month == _date.month &&
-                rLocal.day == _date.day;
+          final filtered = allRecords.where((r) {
+            if (_searchQuery.isEmpty) return true;
+            final st = students.firstWhere((s) => s.id == r.studentId, orElse: () => _unknownUser);
+            final matchName = st.name.toLowerCase().contains(_searchQuery.toLowerCase());
+            final matchRoll = (st.collegeRollNo ?? '').contains(_searchQuery);
+            return matchName || matchRoll;
           }).toList();
 
           return Column(
             children: [
-              Container(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              Padding(
                 padding: const EdgeInsets.all(12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      DateFormat('EEEE, MMM d, yyyy').format(_date),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: _pickDate,
-                      icon: const Icon(Icons.calendar_month),
-                      label: const Text('Change Date'),
-                    ),
-                  ],
+                child: TextField(
+                  decoration: const InputDecoration(
+                    labelText: 'Search Student Name / Roll No',
+                    prefixIcon: Icon(Icons.search),
+                  ),
+                  onChanged: (v) => setState(() => _searchQuery = v),
                 ),
               ),
+              if (_edited.isNotEmpty)
+                Container(
+                  color: Theme.of(context).colorScheme.tertiaryContainer,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('${_edited.length} unsaved change(s)',
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      Row(
+                        children: [
+                          TextButton(
+                            onPressed: _isSaving ? null : () => setState(() => _edited.clear()),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: _isSaving ? null : () => _saveChanges(ref),
+                            child: _isSaving
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : const Text('Apply'),
+                          ),
+                        ],
+                      )
+                    ],
+                  ),
+                ),
               Expanded(
-                child: dayRecords.isEmpty
-                    ? const Center(child: Text('No records found for this date.'))
-                    : ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: dayRecords.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
+                child: ListView.builder(
+                  itemCount: filtered.length,
                   itemBuilder: (ctx, i) {
-                    final r = dayRecords[i];
-                    final student = students.firstWhere(
-                            (s) => s.id == r.studentId,
-                        orElse: () => _unknownUser);
-                    final subject = subjects.firstWhere(
-                            (s) => s.id == r.subjectId,
-                        orElse: () => _unknownSubject);
+                    final r = filtered[i];
+                    final st = students.firstWhere((s) => s.id == r.studentId, orElse: () => _unknownUser);
+                    final sub = subjects.firstWhere((s) => s.id == r.subjectId,
+                        orElse: () => const Subject(
+                            id: '', code: '?', name: 'Unknown',
+                            department: '', semester: '', section: '', teacherId: ''));
 
                     final currentStatus = _edited[r.id] ?? r.status;
 
-                    return ListTile(
-                      title: Text(student.name),
-                      subtitle: Text('${subject.name} • ${r.slot}'),
-                      trailing: DropdownButton<AttendanceStatus>(
-                        value: currentStatus,
-                        underline: Container(),
-                        items: AttendanceStatus.values.map((s) => DropdownMenuItem(
-                          value: s,
-                          child: Text(s.name.toUpperCase(),
-                              style: TextStyle(
-                                  color: _statusColor(s),
-                                  fontWeight: FontWeight.bold)),
-                        )).toList(),
-                        onChanged: (val) {
-                          if (val != null) {
-                            setState(() => _edited[r.id] = val);
-                          }
-                        },
+                    return Card(
+                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('${st.name} (${st.collegeRollNo ?? 'N/A'})',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                            const SizedBox(height: 4),
+                            Text('${sub.name} • ${DateFormat('MMM d, yyyy').format(r.date)} • ${r.slot}',
+                                style: const TextStyle(color: Colors.grey)),
+                            const SizedBox(height: 12),
+                            SegmentedButton<AttendanceStatus>(
+                              segments: const [
+                                ButtonSegment(value: AttendanceStatus.present, label: Text('P')),
+                                ButtonSegment(value: AttendanceStatus.absent, label: Text('A')),
+                                ButtonSegment(value: AttendanceStatus.late, label: Text('L')),
+                                ButtonSegment(value: AttendanceStatus.excused, label: Text('E')),
+                              ],
+                              selected: {currentStatus},
+                              onSelectionChanged: (val) {
+                                setState(() {
+                                  if (val.first == r.status) {
+                                    _edited.remove(r.id);
+                                  } else {
+                                    _edited[r.id] = val.first;
+                                  }
+                                });
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                     );
                   },
@@ -146,68 +174,29 @@ class _AttendanceOverridesPageState extends ConsumerState<AttendanceOverridesPag
     );
   }
 
-  Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      firstDate: DateTime(2023),
-      lastDate: DateTime(2030),
-      initialDate: _date,
-    );
-    if (picked != null) setState(() => _date = picked);
-  }
-
-  Future<void> _saveChanges(BuildContext context) async {
-    final batch = FirebaseFirestore.instance.batch();
-
-    _edited.forEach((recordId, newStatus) {
-      final ref = FirebaseFirestore.instance.collection('attendance').doc(recordId);
-      batch.update(ref, {
-        'status': newStatus.name,
-        'markedByTeacherId': 'ADMIN_OVERRIDE',
-        'markedAt': Timestamp.now(),
-      });
-    });
+  Future<void> _saveChanges(WidgetRef ref) async {
+    if (_edited.isEmpty) return;
+    setState(() => _isSaving = true);
 
     try {
-      await batch.commit();
-      setState(() => _edited.clear());
-      ref.invalidate(adminAttendanceProvider);
+      final user = await ref.read(authRepoProvider).currentUser();
+      if (user == null || !user.role.isAdmin) throw Exception('Unauthorized');
 
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved Successfully')));
+      await ref.read(attendanceRepoProvider).batchUpdateStatus(_edited, user.id);
+
+      if (mounted) {
+        setState(() {
+          _edited.clear();
+          _isSaving = false;
+        });
+        ref.invalidate(adminAttendanceProvider);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Overrides Saved Successfully')));
+      }
     } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) {
+        setState(() => _isSaving = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
     }
   }
-
-  Color _statusColor(AttendanceStatus s) {
-    switch (s) {
-      case AttendanceStatus.present: return Colors.green;
-      case AttendanceStatus.absent: return Colors.red;
-      case AttendanceStatus.late: return Colors.orange;
-      case AttendanceStatus.excused: return Colors.blue;
-    }
-  }
-
-  // Helper objects for unknown references
-  // FIXED: Removed 'const' keyword because DateTime.fromMillisecondsSinceEpoch is not const
-  final _unknownUser = UserAccount(
-      id: '?',
-      role: UserRole.student,
-      name: 'Unknown',
-      email: '',
-      phone: '',
-      isActive: true,
-      createdAt: DateTime.fromMillisecondsSinceEpoch(0)
-  );
-
-  final _unknownSubject = const Subject(
-      id: '?',
-      code: '?',
-      name: 'Unknown',
-      department: '',
-      semester: '',
-      section: '',
-      teacherId: '');
 }

@@ -1,5 +1,6 @@
 // lib/core/models/attendance.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
 
 enum AttendanceStatus { present, absent, late, excused }
 
@@ -32,32 +33,25 @@ class AttendanceRecord {
     'subjectId': subjectId,
     'date': Timestamp.fromDate(date),
     'slot': slot,
-    'status': status.name, // Store enum as string
+    'status': status.name,
     'markedByTeacherId': markedByTeacherId,
     'markedAt': Timestamp.fromDate(markedAt),
   };
 
-  // FIX: Accept ID separately from the map
   factory AttendanceRecord.fromMap(String id, Map<String, dynamic> map) {
-    DateTime parseDate(dynamic input) {
-      if (input is Timestamp) return input.toDate();
-      if (input is String) return DateTime.tryParse(input) ?? DateTime.now();
-      return DateTime.now();
-    }
-
     return AttendanceRecord(
       id: id,
       sessionId: map['sessionId'] ?? '',
       studentId: map['studentId'] ?? '',
       subjectId: map['subjectId'] ?? '',
-      date: parseDate(map['date']),
+      date: DateParser.parse(map['date'], fieldName: 'AttendanceRecord.date'),
       slot: map['slot'] ?? '',
       status: AttendanceStatus.values.firstWhere(
             (e) => e.name == map['status'],
         orElse: () => AttendanceStatus.absent,
       ),
       markedByTeacherId: map['markedByTeacherId'] ?? '',
-      markedAt: parseDate(map['markedAt']),
+      markedAt: DateParser.parse(map['markedAt'], fieldName: 'AttendanceRecord.markedAt'),
     );
   }
 }

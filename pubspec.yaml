@@ -21,7 +21,7 @@ dependencies:
   crypto: ^3.0.3
   google_fonts: ^6.3.0
   shimmer: ^3.0.0
-  http: ^1.2.0
+  http: ^1.6.0
   flutter_markdown: ^0.6.14
   google_generative_ai: 0.4.0
 
@@ -36,7 +36,9 @@ dependencies:
   mobile_scanner: ^5.2.3   # For scanning QR codes on student's device
   secure_application: ^4.1.0
   url_launcher: ^6.3.2
+  flutter_dotenv: ^6.0.0
   #flutter_windowmanager: ^0.2.0   # For restricting screenshots on Android
+  lottie: ^2.7.0
 
 dev_dependencies:
   path: ^1.9.0
@@ -50,6 +52,7 @@ flutter:
   assets:
     - assets/logo_foreground.jpg
     - assets/loader.json   # Remove this line if you're not using any Lottie animation
+    - .env
 
 flutter_launcher_icons:
   android: true

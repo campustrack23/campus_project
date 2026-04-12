@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../common/widgets/profile_avatar_action.dart';
 import '../common/widgets/app_drawer.dart';
+import '../../core/utils/firebase_error_parser.dart';
 
 class ImportExportPage extends ConsumerStatefulWidget {
   const ImportExportPage({super.key});
@@ -18,7 +19,6 @@ class _ImportExportPageState extends ConsumerState<ImportExportPage> {
   final TextEditingController ctrl = TextEditingController();
   bool _isLoading = false;
 
-  // Available collections to import into
   final List<String> _collections = ['users', 'subjects', 'timetable', 'attendance'];
   String _selectedCollection = 'subjects';
 
@@ -41,128 +41,72 @@ class _ImportExportPageState extends ConsumerState<ImportExportPage> {
         child: Column(
           children: [
             const Text(
-              'Paste JSON data below to import.',
-              style: TextStyle(color: Colors.grey),
+              'Warning: This is a raw database tool. Malformed JSON will fail to import.',
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 10),
-
-            // Collection Selector
+            const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               value: _selectedCollection,
-              decoration: const InputDecoration(labelText: 'Target Collection'),
+              decoration: const InputDecoration(labelText: 'Target Collection', border: OutlineInputBorder()),
               items: _collections.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-              onChanged: (v) {
-                if (v != null) setState(() => _selectedCollection = v);
-              },
+              onChanged: (v) => setState(() => _selectedCollection = v!),
             ),
-            const SizedBox(height: 10),
-
+            const SizedBox(height: 16),
             Expanded(
               child: TextField(
                 controller: ctrl,
                 maxLines: null,
                 expands: true,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                textAlignVertical: TextAlignVertical.top,
                 decoration: const InputDecoration(
-                  hintText: '[{"id": "...", "name": "..."}]',
+                  hintText: 'Paste JSON array here...',
                   border: OutlineInputBorder(),
-                  filled: true,
                 ),
               ),
             ),
             const SizedBox(height: 16),
-            if (_isLoading)
-              const CircularProgressIndicator()
-            else
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: _exportData,
-                    icon: const Icon(Icons.download),
-                    label: const Text('Export Current'),
-                  ),
-                  FilledButton.icon(
-                    onPressed: () => _importData(_selectedCollection),
-                    icon: const Icon(Icons.upload),
-                    label: const Text('Import JSON'),
-                  ),
-                ],
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: FilledButton.icon(
+                onPressed: _isLoading ? null : _importData,
+                icon: _isLoading
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Icon(Icons.upload),
+                label: const Text('Execute Batch Import'),
               ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Future<void> _exportData() async {
-    setState(() => _isLoading = true);
-    try {
-      final snap = await FirebaseFirestore.instance.collection(_selectedCollection).limit(1000).get();
-      final data = snap.docs.map((d) {
-        final map = d.data();
-        // Convert timestamps to string for JSON compatibility
-        final converted = map.map((k, v) {
-          if (v is Timestamp) return MapEntry(k, v.toDate().toIso8601String());
-          return MapEntry(k, v);
-        });
-        return converted;
-      }).toList();
-
-      final jsonStr = const JsonEncoder.withIndent('  ').convert(data);
-      ctrl.text = jsonStr;
-
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Exported ${data.length} items')));
-    } catch (e) {
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Export failed: $e')));
-    } finally {
-      if(mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _importData(String collection) async {
-    if (ctrl.text.isEmpty) return;
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Import to "$collection"?'),
-        content: const Text('This will overwrite existing documents with matching IDs. Ensure JSON is valid.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Import')),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
+  Future<void> _importData() async {
+    final text = ctrl.text.trim();
+    if (text.isEmpty) return;
 
     setState(() => _isLoading = true);
+
     try {
-      // 1. VALIDATE JSON
-      final dynamic decoded = jsonDecode(ctrl.text);
-      if (decoded is! List) {
-        throw const FormatException('Root must be a JSON List [...]');
-      }
+      final List<dynamic> parsed = jsonDecode(text);
+      final List<Map<String, dynamic>> items = parsed.cast<Map<String, dynamic>>();
 
-      final List<Map<String, dynamic>> items = [];
-      for(var i=0; i<decoded.length; i++) {
-        final item = decoded[i];
-        if (item is! Map) throw FormatException('Item at index $i is not a JSON Object');
-        items.add(Map<String, dynamic>.from(item));
-      }
+      await _batchWrite(_selectedCollection, items);
 
-      // 2. BATCH WRITE
-      await _batchWrite(collection, items);
-
-      if(mounted) {
+      if (mounted) {
         ctrl.clear();
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Import Successful!')));
       }
     } catch (e) {
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) {
+        // SECURITY FIX: Route error through parser to prevent leaking internal stack traces.
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(FirebaseErrorParser.getMessage(e)))
+        );
+      }
     } finally {
-      if(mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -176,22 +120,14 @@ class _ImportExportPageState extends ConsumerState<ImportExportPage> {
       final chunk = items.sublist(i, end);
 
       for (final docData in chunk) {
-        // Ensure we have an ID
         final String? id = docData['id'];
         final DocumentReference ref = id != null
             ? db.collection(collection).doc(id)
-            : db.collection(collection).doc(); // Auto-id if missing
+            : db.collection(collection).doc();
 
-        // Sanitize Timestamps (convert ISO strings back to Timestamp if needed)
-        // This is basic; deep conversion would be recursive.
-        final sanitized = docData.map((k, v) {
-          // If string looks like date, try parse?
-          // For simplicity, we assume generic import. Models handle parsing.
-          return MapEntry(k, v);
-        });
-
-        batch.set(ref, sanitized, SetOptions(merge: true));
+        batch.set(ref, docData, SetOptions(merge: true));
       }
+
       await batch.commit();
     }
   }

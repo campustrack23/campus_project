@@ -1,4 +1,5 @@
 // lib/app_router.dart
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 // Common
@@ -6,7 +7,10 @@ import 'features/about/about_page.dart';
 import 'features/auth/splash_page.dart';
 import 'features/auth/login_page.dart';
 import 'features/profile/my_profile_page.dart';
+import 'features/profile/update_profile_page.dart';
 import 'features/notifications/notification_page.dart';
+import 'features/notices/notices_page.dart';
+import 'features/assignments/assignments_page.dart';
 import 'features/people/students_directory_page.dart';
 import 'features/people/teacher_directory_page.dart';
 
@@ -35,62 +39,107 @@ import 'features/admin/import_export_page.dart';
 import 'features/admin/reset_passwords_page.dart';
 import 'features/admin/query_management_page.dart';
 
-/// Defines all the routes in the app.
-final appRoutes = <RouteBase>[
-  // ===== AUTH =====
-  GoRoute(path: '/', builder: (_, __) => const SplashPage()),
-  GoRoute(path: '/login', builder: (_, __) => const LoginPage()),
+import 'core/models/role.dart';
+import 'main.dart';
 
-  // ===== COMMON =====
-  GoRoute(path: '/profile', builder: (_, __) => const MyProfilePage()),
-  GoRoute(path: '/about', builder: (_, __) => const AboutPage()),
-  GoRoute(path: '/notifications', builder: (_, __) => const NotificationsPage()),
-  GoRoute(path: '/students/directory', builder: (_, __) => const StudentsDirectoryPage()),
-  GoRoute(path: '/teachers/directory', builder: (_, __) => const TeacherDirectoryPage()),
+final routerProvider = Provider<GoRouter>((ref) {
+  final authState = ref.watch(authStateProvider);
 
-  // ===== HOME =====
-  GoRoute(path: '/home/student', builder: (_, __) => const StudentHomePage()),
-  GoRoute(path: '/home/teacher', builder: (_, __) => const TeacherHomePage()),
-  GoRoute(path: '/home/admin', builder: (_, __) => const AdminHomePage()),
+  // Map route prefixes to required roles for explicit security checking
+  final Map<String, List<UserRole>> routePermissions = {
+    '/admin': [UserRole.admin],
+    '/teacher': [UserRole.teacher],
+    '/student': [UserRole.student],
+  };
 
-  // ===== STUDENT =====
-  GoRoute(path: '/student/attendance', builder: (_, __) => const StudentAttendancePage()),
-  GoRoute(path: '/student/internal-marks', builder: (_, __) => const student_marks.InternalMarksPage()),
-  GoRoute(path: '/student/timetable', builder: (_, __) => const TimetablePage()),
-  GoRoute(path: '/student/raise-query', builder: (_, __) => const RaiseQueryPage()),
-  GoRoute(path: '/student/scan-qr', builder: (_, __) => const ScanQRPage()),
+  return GoRouter(
+    initialLocation: '/',
+    redirect: (context, state) {
+      final isLoading = authState.isLoading;
+      final user = authState.valueOrNull;
 
-  // ===== TEACHER =====
-  // 🔴 FIX: Changed from '/teacher/mark/:entryId' to '/teacher/generate-qr/:entryId'
-  GoRoute(
-    path: '/teacher/generate-qr/:entryId',
-    builder: (ctx, state) {
-      final entryId = state.pathParameters['entryId'] ?? '';
-      return GenerateQRPage(entryId: entryId);
+      if (isLoading) return '/'; // Force splash while loading
+
+      final isGoingToLogin = state.matchedLocation == '/login';
+      final isGoingToSplash = state.matchedLocation == '/';
+
+      if (user == null) {
+        if (!isGoingToLogin) return '/login';
+        return null;
+      }
+
+      if (isGoingToLogin || isGoingToSplash) {
+        return '/home/${user.role.key}';
+      }
+
+      // SECURITY FIX: Explicit role checking instead of fragile path string matching
+      for (final prefix in routePermissions.keys) {
+        if (state.matchedLocation.startsWith(prefix)) {
+          final allowedRoles = routePermissions[prefix]!;
+          if (!allowedRoles.contains(user.role)) {
+            return '/home/${user.role.key}'; // Fallback to safe home
+          }
+        }
+      }
+
+      return null;
     },
-  ),
-  GoRoute(
-    path: '/teacher/review-attendance/:sessionId',
-    builder: (ctx, state) {
-      final sessionId = state.pathParameters['sessionId'] ?? '';
-      return ReviewAttendancePage(sessionId: sessionId);
-    },
-  ),
-  GoRoute(path: '/teacher/remarks-board', builder: (_, __) => const RemarksBoardPage()),
-  GoRoute(path: '/teacher/internal-marks', builder: (_, __) => const teacher_marks.InternalMarksPage()),
+    routes: [
+      GoRoute(path: '/', builder: (_, __) => const SplashPage()),
+      GoRoute(path: '/login', builder: (_, __) => const LoginPage()),
 
-  // ===== ADMIN =====
-  GoRoute(
-    path: '/admin/users',
-    builder: (ctx, state) {
-      final addStudent = state.uri.queryParameters['add'] == 'student';
-      return UserManagementPage(addStudentOnOpen: addStudent);
-    },
-  ),
-  GoRoute(path: '/admin/timetable', builder: (_, __) => const TimetableBuilderPage()),
-  GoRoute(path: '/admin/attendance-overrides', builder: (_, __) => const AttendanceOverridesPage()),
-  GoRoute(path: '/admin/internal-marks-overrides', builder: (_, __) => const InternalMarksOverridesPage()),
-  GoRoute(path: '/admin/import-export', builder: (_, __) => const ImportExportPage()),
-  GoRoute(path: '/admin/reset-passwords', builder: (_, __) => const ResetPasswordsPage()),
-  GoRoute(path: '/admin/queries', builder: (_, __) => const QueryManagementPage()),
-];
+      // ===== COMMON =====
+      GoRoute(path: '/about', builder: (_, __) => const AboutPage()),
+      GoRoute(path: '/profile', builder: (_, __) => const MyProfilePage()),
+      GoRoute(path: '/profile/update', builder: (_, __) => const UpdateProfilePage()),
+      GoRoute(path: '/notifications', builder: (_, __) => const NotificationsPage()),
+      GoRoute(path: '/notices', builder: (_, __) => const NoticesPage()),
+      GoRoute(path: '/assignments', builder: (_, __) => const AssignmentsPage()),
+      GoRoute(path: '/students/directory', builder: (_, __) => const StudentsDirectoryPage()),
+      GoRoute(path: '/teachers/directory', builder: (_, __) => const TeacherDirectoryPage()),
+
+      // ===== STUDENT =====
+      GoRoute(path: '/home/student', builder: (_, __) => const StudentHomePage()),
+      GoRoute(path: '/student/attendance', builder: (_, __) => const StudentAttendancePage()),
+      GoRoute(path: '/student/timetable', builder: (_, __) => const TimetablePage()),
+      GoRoute(path: '/student/raise-query', builder: (_, __) => const RaiseQueryPage()),
+      GoRoute(path: '/student/internal-marks', builder: (_, __) => const student_marks.InternalMarksPage()),
+      GoRoute(path: '/student/scan-qr', builder: (_, __) => const ScanQRPage()),
+
+      // ===== TEACHER =====
+      GoRoute(path: '/home/teacher', builder: (_, __) => const TeacherHomePage()),
+      GoRoute(
+        path: '/teacher/generate-qr/:entryId',
+        builder: (ctx, state) {
+          final entryId = state.pathParameters['entryId'] ?? '';
+          return GenerateQRPage(entryId: entryId);
+        },
+      ),
+      GoRoute(
+        path: '/teacher/review-attendance/:sessionId',
+        builder: (ctx, state) {
+          final sessionId = state.pathParameters['sessionId'] ?? '';
+          return ReviewAttendancePage(sessionId: sessionId);
+        },
+      ),
+      GoRoute(path: '/teacher/remarks-board', builder: (_, __) => const RemarksBoardPage()),
+      GoRoute(path: '/teacher/internal-marks', builder: (_, __) => const teacher_marks.InternalMarksPage()),
+
+      // ===== ADMIN =====
+      GoRoute(path: '/home/admin', builder: (_, __) => const AdminHomePage()),
+      GoRoute(
+        path: '/admin/users',
+        builder: (ctx, state) {
+          final addStudent = state.uri.queryParameters['add'] == 'student';
+          return UserManagementPage(addStudentOnOpen: addStudent);
+        },
+      ),
+      GoRoute(path: '/admin/timetable', builder: (_, __) => const TimetableBuilderPage()),
+      GoRoute(path: '/admin/attendance-overrides', builder: (_, __) => const AttendanceOverridesPage()),
+      GoRoute(path: '/admin/internal-marks-overrides', builder: (_, __) => const InternalMarksOverridesPage()),
+      GoRoute(path: '/admin/import-export', builder: (_, __) => const ImportExportPage()),
+      GoRoute(path: '/admin/reset-passwords', builder: (_, __) => const ResetPasswordsPage()),
+      GoRoute(path: '/admin/query-management', builder: (_, __) => const QueryManagementPage()),
+    ],
+  );
+});

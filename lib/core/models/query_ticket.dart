@@ -1,19 +1,16 @@
 // lib/core/models/query_ticket.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
 
 enum QueryStatus { open, inProgress, resolved, rejected }
 
 extension QueryStatusX on QueryStatus {
   String get label {
     switch (this) {
-      case QueryStatus.open:
-        return "Open";
-      case QueryStatus.inProgress:
-        return "In Progress";
-      case QueryStatus.resolved:
-        return "Resolved";
-      case QueryStatus.rejected:
-        return "Rejected";
+      case QueryStatus.open: return "Open";
+      case QueryStatus.inProgress: return "In Progress";
+      case QueryStatus.resolved: return "Resolved";
+      case QueryStatus.rejected: return "Rejected";
     }
   }
 
@@ -89,28 +86,17 @@ class QueryTicket {
   };
 
   factory QueryTicket.fromMap(String id, Map<String, dynamic> map) {
-    // SECURITY FIX: Strict parsing.
-    DateTime parseDate(dynamic input) {
-      if (input is Timestamp) return input.toDate();
-      if (input is String) return DateTime.parse(input);
-      if (input is int) return DateTime.fromMillisecondsSinceEpoch(input);
-      throw FormatException('Invalid date format in QueryTicket: $input');
-    }
-
     return QueryTicket(
       id: id,
       raisedByStudentId: map['raisedByStudentId'] ?? '',
       subjectId: map['subjectId'],
       title: map['title'] ?? 'No Title',
       message: map['message'] ?? '',
-      attachments: (map['attachments'] as List?)
-          ?.map((e) => e.toString())
-          .toList() ??
-          const [],
+      attachments: (map['attachments'] as List?)?.map((e) => e.toString()).toList() ?? const [],
       status: QueryStatusX.fromName(map['status']),
       assignedToTeacherId: map['assignedToTeacherId'],
-      createdAt: parseDate(map['createdAt']),
-      updatedAt: parseDate(map['updatedAt']),
+      createdAt: DateParser.parse(map['createdAt'], fieldName: 'QueryTicket.createdAt'),
+      updatedAt: DateParser.parse(map['updatedAt'], fieldName: 'QueryTicket.updatedAt'),
     );
   }
 }

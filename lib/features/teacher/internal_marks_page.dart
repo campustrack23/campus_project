@@ -2,7 +2,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
-import 'package:collection/collection.dart';
 
 import '../common/widgets/profile_avatar_action.dart';
 import '../common/widgets/app_drawer.dart';
@@ -78,7 +77,9 @@ final subjectGradingProvider = FutureProvider.autoDispose.family<SubjectGradingD
       final m = marksMap[student.id]!;
       marksMap[student.id] = m.copyWith(
         attendanceMarks: calculatedAttMarks.toDouble(),
-      ).recalculateTotal();
+        // FIXED: Explicitly calculate totalMarks instead of recalculateTotal()
+        totalMarks: m.assignmentMarks + m.testMarks + calculatedAttMarks.toDouble(),
+      );
     } else {
       marksMap[student.id] = InternalMarks.empty(
           subjectId: subjectId,
@@ -86,10 +87,13 @@ final subjectGradingProvider = FutureProvider.autoDispose.family<SubjectGradingD
           teacherId: teacher.id
       ).copyWith(
         attendanceMarks: calculatedAttMarks.toDouble(),
-      ).recalculateTotal();
+        // FIXED: Explicitly calculate totalMarks instead of recalculateTotal()
+        totalMarks: calculatedAttMarks.toDouble(),
+      );
     }
   }
 
+  // Uses native firstOrNull from Dart 3
   final isPublished = existingMarks.firstOrNull?.isVisibleToStudent ?? false;
 
   return SubjectGradingData(
@@ -248,8 +252,10 @@ class _GradingList extends ConsumerWidget {
                         marks.copyWith(
                           assignmentMarks: assignment,
                           testMarks: test,
+                          // FIXED: Calculate total inline
+                          totalMarks: assignment + test + marks.attendanceMarks,
                           updatedAt: DateTime.now(),
-                        ).recalculateTotal(),
+                        ),
                       );
                     },
                   );
