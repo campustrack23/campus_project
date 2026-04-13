@@ -50,6 +50,8 @@ final routerProvider = Provider<GoRouter>((ref) {
     '/admin': [UserRole.admin],
     '/teacher': [UserRole.teacher],
     '/student': [UserRole.student],
+    // SECURITY FIX: Explicitly block students from viewing the directory
+    '/students/directory': [UserRole.admin, UserRole.teacher],
   };
 
   return GoRouter(
@@ -72,12 +74,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         return '/home/${user.role.key}';
       }
 
-      // SECURITY FIX: Explicit role checking instead of fragile path string matching
+      // Explicit role checking
       for (final prefix in routePermissions.keys) {
         if (state.matchedLocation.startsWith(prefix)) {
           final allowedRoles = routePermissions[prefix]!;
           if (!allowedRoles.contains(user.role)) {
-            return '/home/${user.role.key}'; // Fallback to safe home
+            // Kick them back to their home screen if they try to access a blocked route
+            return '/home/${user.role.key}';
           }
         }
       }
@@ -95,8 +98,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/notifications', builder: (_, __) => const NotificationsPage()),
       GoRoute(path: '/notices', builder: (_, __) => const NoticesPage()),
       GoRoute(path: '/assignments', builder: (_, __) => const AssignmentsPage()),
-      GoRoute(path: '/students/directory', builder: (_, __) => const StudentsDirectoryPage()),
       GoRoute(path: '/teachers/directory', builder: (_, __) => const TeacherDirectoryPage()),
+
+      // ===== RESTRICTED COMMON =====
+      GoRoute(path: '/students/directory', builder: (_, __) => const StudentsDirectoryPage()),
 
       // ===== STUDENT =====
       GoRoute(path: '/home/student', builder: (_, __) => const StudentHomePage()),

@@ -122,17 +122,17 @@ class TeacherHomePage extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, stack) => AsyncErrorWidget(
           message: err.toString(),
-          onRetry: () => ref.refresh(teacherDashboardProvider),
+          onRetry: () => ref.invalidate(teacherDashboardProvider),
         ),
         data: (vm) => RefreshIndicator(
-          onRefresh: () async => ref.refresh(teacherDashboardProvider),
+          onRefresh: () async => ref.invalidate(teacherDashboardProvider),
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _Header(vm: vm),
-                _ActionButtons(),
+                const _ActionButtons(),
                 const Padding(
                   padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
                   child: Text('Today\'s Schedule', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
@@ -231,6 +231,8 @@ class _Header extends StatelessWidget {
 }
 
 class _ActionButtons extends StatelessWidget {
+  const _ActionButtons();
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -323,41 +325,44 @@ class _TimetablePreviewState extends State<_TimetablePreview> {
                   label: Text(dayMap[d]!),
                   selected: isSel,
                   onSelected: (v) => setState(() => _selectedDay = d),
+                  selectedColor: Theme.of(context).colorScheme.primaryContainer,
                 ),
               );
             }).toList(),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
 
         // --- TIMETABLE GRID ---
-        Container(
-          height: 300,
+        filteredEntries.isEmpty
+            ? Container(
+          height: 150,
           margin: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.withOpacity(0.2)),
+            color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
             borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5)),
           ),
-          child: filteredEntries.isEmpty
-              ? Center(
+          child: Center(
             child: Text(
               _selectedYear == null
                   ? 'No classes scheduled.'
                   : 'No classes for Year $_selectedYear.',
-              style: const TextStyle(color: Colors.grey),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
-          )
-              : TimetableGrid(
-            days: [dayKey],
-            periodStarts: const ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'],
-            periodLabels: const ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'],
-            entries: filteredEntries, // Pass the filtered list here!
-            subjectCodes: {for (var k in widget.vm.subjectsMap.keys) k: widget.vm.subjectsMap[k]?.code ?? ''},
-            subjectLeadTeacherId: {for (var k in widget.vm.subjectsMap.keys) k: widget.vm.subjectsMap[k]?.teacherId ?? ''},
-            teacherNames: widget.vm.teacherNamesMap,
-            todayKey: dayKey,
-            currentTeacherId: widget.vm.currentTeacherId,
           ),
+        )
+            : TimetableGrid(
+          days: [dayKey],
+          periodStarts: const ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'],
+          periodLabels: const ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'],
+          entries: filteredEntries, // Pass the filtered list here!
+          subjectCodes: {for (var k in widget.vm.subjectsMap.keys) k: widget.vm.subjectsMap[k]?.code ?? ''},
+          subjectLeadTeacherId: {for (var k in widget.vm.subjectsMap.keys) k: widget.vm.subjectsMap[k]?.teacherId ?? ''},
+          teacherNames: widget.vm.teacherNamesMap,
+          todayKey: dayKey,
+          currentTeacherId: widget.vm.currentTeacherId,
+          cancelledEntryIds: const {}, // Empty set for teachers as overrides are handled differently
         ),
       ],
     );

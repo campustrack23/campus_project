@@ -22,10 +22,7 @@ import '../../main.dart';
 class TimetablePageVM {
   final String section;
   final List<TimetableEntry> entries;
-
-  /// Entry IDs that are cancelled today. The grid uses this to style them.
   final Set<String> cancelledEntryIds;
-
   final Map<String, Subject> subjectsMap;
   final Map<String, String> teacherNamesMap;
   final Upcoming? nextClass;
@@ -58,7 +55,6 @@ class Upcoming {
 
 final studentTimetablePageProvider =
 FutureProvider.autoDispose<TimetablePageVM>((ref) async {
-  // Cache for 5 minutes
   final link = ref.keepAlive();
   final timer = Timer(const Duration(minutes: 5), () => link.close());
   ref.onDispose(timer.cancel);
@@ -73,12 +69,9 @@ FutureProvider.autoDispose<TimetablePageVM>((ref) async {
 
   final ttRepo = ref.watch(timetableRepoProvider);
 
-  // Today as YYYY-MM-DD for the overrides query
   final today = DateTime.now();
-  final dateString =
-      '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+  final dateString = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
 
-  // Fetch everything in parallel, overrides included
   final results = await Future.wait([
     ttRepo.forSection(section),
     ttRepo.allSubjects(),
@@ -97,42 +90,23 @@ FutureProvider.autoDispose<TimetablePageVM>((ref) async {
       u.id: u.name
   };
 
-  // Override lookup: originalEntryId → TimetableOverride
-  // (matches the field name in your TimetableOverride model)
   final overrideMap = {for (final o in overrides) o.originalEntryId: o};
-
   final todayKey = _TimetableUtil.dayStr(today.weekday);
-
-  // IDs of entries that are cancelled today — passed to the VM so the
-  // grid / next-class card can style them without relying on sentinel values.
   final cancelledEntryIds = <String>{};
 
   final normalizedEntries = rawEntries.map((e) {
-    // Normalise seeder day numbers ("1"…"6") to labels ("Mon"…"Sat")
-    const dayMap = {
-      '1': 'Mon',
-      '2': 'Tue',
-      '3': 'Wed',
-      '4': 'Thu',
-      '5': 'Fri',
-      '6': 'Sat',
-    };
+    const dayMap = {'1': 'Mon', '2': 'Tue', '3': 'Wed', '4': 'Thu', '5': 'Fri', '6': 'Sat'};
     final safeDay = dayMap[e.dayOfWeek] ?? e.dayOfWeek;
     final dataMap = e.toMap();
     dataMap['dayOfWeek'] = safeDay;
 
-    // Only apply overrides to today's classes
     if (safeDay == todayKey && overrideMap.containsKey(e.id)) {
       final over = overrideMap[e.id]!;
 
       if (over.isCancelled) {
-        // Track cancelled IDs so the UI can render a "Cancelled" badge.
-        // We intentionally keep the original times so the grid slot remains
-        // visible — students can see what *would* have been there.
         cancelledEntryIds.add(e.id);
         dataMap['room'] = 'Cancelled';
       } else {
-        // Reschedule: update only the fields the teacher changed
         if (over.newStartTime != null) dataMap['startTime'] = over.newStartTime;
         if (over.newEndTime != null) dataMap['endTime'] = over.newEndTime;
         if (over.newRoom != null) dataMap['room'] = '${over.newRoom} (Updated)';
@@ -142,14 +116,10 @@ FutureProvider.autoDispose<TimetablePageVM>((ref) async {
     return TimetableEntry.fromMap(e.id, dataMap);
   }).toList();
 
-  // Next-class logic: skip cancelled entries so they don't show as "upcoming"
   final todays = normalizedEntries
-      .where((e) =>
-  e.dayOfWeek == todayKey && !cancelledEntryIds.contains(e.id))
+      .where((e) => e.dayOfWeek == todayKey && !cancelledEntryIds.contains(e.id))
       .toList()
-    ..sort((a, b) => _TimetableUtil
-        .toMinutes(a.startTime)
-        .compareTo(_TimetableUtil.toMinutes(b.startTime)));
+    ..sort((a, b) => _TimetableUtil.toMinutes(a.startTime).compareTo(_TimetableUtil.toMinutes(b.startTime)));
 
   final nextClass = _TimetableUtil.findNextOrOngoing(todays);
 
@@ -188,106 +158,56 @@ class TimetablePage extends ConsumerWidget {
       drawer: const AppDrawer(),
       body: asyncData.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-
-        error: (err, stack) => Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Row(
-                  children: [
-                    Icon(Icons.warning, color: Colors.red, size: 32),
-                    SizedBox(width: 8),
-                    Text(
-                      'CRASH DETECTED',
-                      style: TextStyle(
-                          color: Colors.red,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-                const Divider(height: 32),
-                Text('ERROR:\n$err',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 16)),
-                const SizedBox(height: 16),
-                Text('STACK TRACE:\n$stack',
-                    style:
-                    const TextStyle(fontSize: 12, color: Colors.grey)),
-                const SizedBox(height: 24),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: () =>
-                          ref.invalidate(studentTimetablePageProvider),
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Retry'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () async {
-                        final errorText =
-                            'CRASH REPORT\n\nERROR:\n$err\n\nSTACK TRACE:\n$stack';
-                        await Clipboard.setData(
-                            ClipboardData(text: errorText));
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content:
-                              Text('Error details copied to clipboard!'),
-                              backgroundColor: Colors.green,
-                            ),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.copy),
-                      label: const Text('Copy Details'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-
+        error: (err, stack) => _buildErrorState(context, ref, err, stack),
         data: (vm) {
-          final subjectCodes =
-          vm.subjectsMap.map((k, v) => MapEntry(k, v.code));
-          final subjectLeadMap =
-          vm.subjectsMap.map((k, v) => MapEntry(k, v.teacherId));
+          final subjectCodes = vm.subjectsMap.map((k, v) => MapEntry(k, v.code));
+          final subjectLeadMap = vm.subjectsMap.map((k, v) => MapEntry(k, v.teacherId));
 
           return RefreshIndicator(
-            onRefresh: () async =>
-                ref.invalidate(studentTimetablePageProvider),
+            onRefresh: () async => ref.invalidate(studentTimetablePageProvider),
             child: ListView(
-              padding: const EdgeInsets.only(bottom: 32),
+              padding: const EdgeInsets.only(bottom: 40),
+              physics: const AlwaysScrollableScrollPhysics(),
               children: [
                 if (vm.nextClass != null)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                     child: _NextClassCard(vm: vm),
                   ),
 
-                // Banner shown when at least one class is cancelled today
                 if (vm.cancelledEntryIds.isNotEmpty)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: _CancelledBanner(
-                        count: vm.cancelledEntryIds.length),
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                    child: _CancelledBanner(count: vm.cancelledEntryIds.length),
                   ),
 
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 8),
-                  child: Text(
-                    'Section ${vm.section}',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey,
-                    ),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Weekly Schedule',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          'Section ${vm.section}',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onPrimaryContainer,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
 
@@ -300,9 +220,8 @@ class TimetablePage extends ConsumerWidget {
                   subjectLeadTeacherId: subjectLeadMap,
                   teacherNames: vm.teacherNamesMap,
                   todayKey: _TimetableUtil.dayStr(DateTime.now().weekday),
-                  // Pass cancelled IDs if your TimetableGrid supports highlighting;
-                  // remove this param if it doesn't accept it yet.
-                  // cancelledEntryIds: vm.cancelledEntryIds,
+                  // ✅ FIXED: Pass cancelled IDs down so the grid styles them!
+                  cancelledEntryIds: vm.cancelledEntryIds,
                 ),
               ],
             ),
@@ -311,10 +230,57 @@ class TimetablePage extends ConsumerWidget {
       ),
     );
   }
+
+  Widget _buildErrorState(BuildContext context, WidgetRef ref, Object err, StackTrace stack) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.warning, color: Colors.red, size: 32),
+                SizedBox(width: 8),
+                Text('CRASH DETECTED', style: TextStyle(color: Colors.red, fontSize: 20, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const Divider(height: 32),
+            Text('ERROR:\n$err', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 16),
+            Text('STACK TRACE:\n$stack', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            const SizedBox(height: 24),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                FilledButton.icon(
+                  onPressed: () => ref.invalidate(studentTimetablePageProvider),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final errorText = 'CRASH REPORT\n\nERROR:\n$err\n\nSTACK TRACE:\n$stack';
+                    await Clipboard.setData(ClipboardData(text: errorText));
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error details copied!')));
+                    }
+                  },
+                  icon: const Icon(Icons.copy),
+                  label: const Text('Copy Details'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // -----------------------------------------------------------------------------
-// NEXT CLASS CARD
+// MODERNIZED NEXT CLASS CARD
 // -----------------------------------------------------------------------------
 
 class _NextClassCard extends StatelessWidget {
@@ -326,20 +292,102 @@ class _NextClassCard extends StatelessWidget {
     final nc = vm.nextClass!;
     final e = nc.entry;
     final subject = vm.subjectsMap[e.subjectId]?.name ?? e.subjectId;
+    final isPrimary = Theme.of(context).brightness == Brightness.light;
 
-    return Card(
-      child: ListTile(
-        leading: const Icon(Icons.schedule),
-        title: Text(
-          nc.isOngoing
-              ? 'Ongoing • ends in ${nc.minutesToStart} min'
-              : 'Next class in ${nc.minutesToStart} min',
-          style: const TextStyle(fontWeight: FontWeight.bold),
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        gradient: LinearGradient(
+          colors: isPrimary
+              ? [Theme.of(context).colorScheme.primary, Theme.of(context).colorScheme.primary.withValues(alpha: 0.7)]
+              : [Theme.of(context).colorScheme.surfaceContainerHigh, Theme.of(context).colorScheme.surfaceContainerHighest],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        subtitle: Text(
-          '$subject\n${TimeFormatter.formatSlot(e.slot)} • Room ${e.room}',
-        ),
-        isThreeLine: true,
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          )
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(nc.isOngoing ? Icons.play_circle_fill : Icons.schedule,
+                        color: isPrimary ? Colors.white : Theme.of(context).colorScheme.primary, size: 16),
+                    const SizedBox(width: 6),
+                    Text(
+                      nc.isOngoing ? 'ONGOING' : 'UPCOMING',
+                      style: TextStyle(
+                        color: isPrimary ? Colors.white : Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                nc.isOngoing ? 'Ends in ${nc.minutesToStart}m' : 'Starts in ${nc.minutesToStart}m',
+                style: TextStyle(
+                  color: isPrimary ? Colors.white : Theme.of(context).colorScheme.onSurface,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Text(
+            subject,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+              color: isPrimary ? Colors.white : Theme.of(context).colorScheme.onSurface,
+              height: 1.1,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(Icons.access_time, size: 18, color: isPrimary ? Colors.white70 : Theme.of(context).colorScheme.onSurfaceVariant),
+              const SizedBox(width: 6),
+              Text(
+                TimeFormatter.formatSlot(e.slot),
+                style: TextStyle(
+                  color: isPrimary ? Colors.white70 : Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w500,
+                  fontSize: 15,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Icon(Icons.room, size: 18, color: isPrimary ? Colors.white70 : Theme.of(context).colorScheme.onSurfaceVariant),
+              const SizedBox(width: 6),
+              Text(
+                'Room ${e.room}',
+                style: TextStyle(
+                  color: isPrimary ? Colors.white70 : Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w500,
+                  fontSize: 15,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -356,24 +404,24 @@ class _CancelledBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.red.shade50,
-        border: Border.all(color: Colors.red.shade200),
-        borderRadius: BorderRadius.circular(10),
+        color: Theme.of(context).colorScheme.errorContainer.withValues(alpha: 0.5),
+        border: Border.all(color: Theme.of(context).colorScheme.error.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
-          Icon(Icons.cancel_outlined, color: Colors.red.shade700, size: 20),
-          const SizedBox(width: 10),
+          Icon(Icons.info_outline, color: Theme.of(context).colorScheme.error, size: 22),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
               count == 1
                   ? '1 class has been cancelled today.'
                   : '$count classes have been cancelled today.',
               style: TextStyle(
-                color: Colors.red.shade800,
-                fontWeight: FontWeight.w500,
+                color: Theme.of(context).colorScheme.onErrorContainer,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
@@ -416,8 +464,7 @@ class _TimetableUtil {
 
   static int toMinutes(String hhmm) {
     try {
-      return int.parse(hhmm.substring(0, 2)) * 60 +
-          int.parse(hhmm.substring(3, 5));
+      return int.parse(hhmm.substring(0, 2)) * 60 + int.parse(hhmm.substring(3, 5));
     } catch (_) {
       return 0;
     }
@@ -430,8 +477,7 @@ class _TimetableUtil {
     DateTime at(String hhmm) {
       try {
         final p = hhmm.split(':');
-        return DateTime(
-            now.year, now.month, now.day, int.parse(p[0]), int.parse(p[1]));
+        return DateTime(now.year, now.month, now.day, int.parse(p[0]), int.parse(p[1]));
       } catch (_) {
         return now;
       }

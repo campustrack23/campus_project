@@ -33,20 +33,22 @@ FutureProvider.autoDispose.family<Map<String, dynamic>, String>(
     final subject = await ttRepo.subjectById(session.subjectId);
     final students = await authRepo.studentsInSection(session.section);
 
-    // 3. Get Permanent Records (Created by Finalize Step)
+    // 3. Get Permanent Records (Created by QR Code or Finalize Step)
     final existingRecords = await attRepo.getRecordsForSession(sessionId);
 
-    // Map records by student ID for easy lookup
+    // Maps for easy lookup
     final Map<String, AttendanceStatus> initialStatus = {};
+    final Map<String, String> recordIds = {}; // <-- BUG FIX: Capture actual Document IDs
 
     // Default all to absent if no record found (safety fallback)
     for (final s in students) {
       initialStatus[s.id] = AttendanceStatus.absent;
     }
 
-    // Overwrite with actual permanent statuses
+    // Overwrite with actual permanent statuses AND capture their exact document IDs
     for (final r in existingRecords) {
       initialStatus[r.studentId] = r.status;
+      recordIds[r.studentId] = r.id; // Map the exact Firestore document ID!
     }
 
     return {
@@ -54,6 +56,7 @@ FutureProvider.autoDispose.family<Map<String, dynamic>, String>(
       'subjectName': subject?.name ?? 'Unknown Subject',
       'students': students,
       'initialStatus': initialStatus,
+      'recordIds': recordIds, // <-- Pass IDs to UI
     };
   },
 );
@@ -106,8 +109,7 @@ class _ReviewAttendancePageState extends ConsumerState<ReviewAttendancePage> {
         ),
         data: (data) {
           final students = data['students'] as List;
-          final initialMap =
-          data['initialStatus'] as Map<String, AttendanceStatus>;
+          final initialMap = data['initialStatus'] as Map<String, AttendanceStatus>;
           final subjectName = data['subjectName'] as String;
 
           int presentCount = 0;
@@ -123,10 +125,7 @@ class _ReviewAttendancePageState extends ConsumerState<ReviewAttendancePage> {
             children: [
               Container(
                 padding: const EdgeInsets.all(16),
-                color: Theme.of(context)
-                    .colorScheme
-                    .primaryContainer
-                    .withOpacity(0.3), // Safe fallback
+                color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -147,8 +146,7 @@ class _ReviewAttendancePageState extends ConsumerState<ReviewAttendancePage> {
                   itemBuilder: (context, index) {
                     final student = students[index];
                     // Display override if exists, otherwise display permanent status
-                    final status =
-                        _overrides[student.id] ?? initialMap[student.id]!;
+                    final status = _overrides[student.id] ?? initialMap[student.id]!;
 
                     return ListTile(
                       title: Text(student.name),
@@ -197,13 +195,14 @@ class _ReviewAttendancePageState extends ConsumerState<ReviewAttendancePage> {
   }
 
   // ---------------------------------------------------------------------------
-  // SAVE (Updates existing records)
+  // SAVE (Updates existing records strictly)
   // ---------------------------------------------------------------------------
 
   Future<void> _save(Map<String, dynamic> data) async {
     try {
       final session = data['session'] as AttendanceSession;
       final initialMap = data['initialStatus'] as Map<String, AttendanceStatus>;
+      final recordIds = data['recordIds'] as Map<String, String>; // Existing IDs
       final students = data['students'] as List;
 
       // Access DB directly via batch for atomicity in this view
@@ -214,11 +213,9 @@ class _ReviewAttendancePageState extends ConsumerState<ReviewAttendancePage> {
       for (final s in students) {
         final currentStatus = _overrides[s.id] ?? initialMap[s.id]!;
 
-        // We construct ID same way repository does to overwrite/create correctly
-        // Format: {sessionId}_{studentId}
-        // Note: Repository used {subjectId}_{studentId}_{date}_{slot} for manual marks,
-        // but since we are reviewing a SESSION, we should use the session-based ID.
-        final docId = '${widget.sessionId}_${s.id}';
+        // 🔴 BUG FIX: Use the EXACT existing document ID to prevent duplicates!
+        // If a record doesn't exist yet, gracefully fall back to the sessionId format.
+        final docId = recordIds[s.id] ?? '${widget.sessionId}_${s.id}';
 
         final record = AttendanceRecord(
           id: docId,

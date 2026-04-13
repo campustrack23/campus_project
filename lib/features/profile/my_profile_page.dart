@@ -154,6 +154,7 @@ class _StudentProfileView extends ConsumerWidget {
     );
   }
 }
+
 // -----------------------------------------------------------------------------
 // TEACHER PROFILE
 // -----------------------------------------------------------------------------
@@ -348,6 +349,7 @@ class _AttendanceSummaryCard extends ConsumerWidget {
     );
   }
 }
+
 // -----------------------------------------------------------------------------
 // TEACHER SUBJECT SUMMARY
 // -----------------------------------------------------------------------------
@@ -497,7 +499,7 @@ class _QualificationsCard extends ConsumerWidget {
 }
 
 // -----------------------------------------------------------------------------
-// EDIT QUALIFICATIONS DIALOG  ✅ FIXES YOUR ERROR
+// EDIT QUALIFICATIONS DIALOG
 // -----------------------------------------------------------------------------
 
 class _EditQualificationsDialog extends ConsumerStatefulWidget {
@@ -597,6 +599,7 @@ class _EditQualificationsDialogState
     );
   }
 }
+
 // -----------------------------------------------------------------------------
 // SETTINGS + ACCOUNT ACTIONS
 // -----------------------------------------------------------------------------
@@ -650,7 +653,11 @@ class _CommonSettingsSection extends ConsumerWidget {
               fontWeight: FontWeight.bold,
             ),
           ),
-          onTap: () => _confirmDelete(context, ref, user),
+          onTap: () => showDialog(
+            context: context,
+            barrierDismissible: false, // Force user to use buttons
+            builder: (_) => _SecureDeleteDialog(user: user),
+          ),
         ),
       ],
     );
@@ -708,52 +715,138 @@ class _CommonSettingsSection extends ConsumerWidget {
       ),
     );
   }
+}
 
-  // ---------------------------------------------------------------------------
-  // DELETE ACCOUNT
-  // ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// SECURE DELETE DIALOG (MODERN CONFIRMATION)
+// -----------------------------------------------------------------------------
 
-  Future<void> _confirmDelete(
-      BuildContext context,
-      WidgetRef ref,
-      UserAccount user,
-      ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete Account?'),
-        content: const Text(
-          'This action is permanent and cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+class _SecureDeleteDialog extends ConsumerStatefulWidget {
+  final UserAccount user;
+  const _SecureDeleteDialog({required this.user});
+
+  @override
+  ConsumerState<_SecureDeleteDialog> createState() => _SecureDeleteDialogState();
+}
+
+class _SecureDeleteDialogState extends ConsumerState<_SecureDeleteDialog> {
+  final TextEditingController _verifyCtrl = TextEditingController();
+  bool _canDelete = false;
+  bool _isProcessing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _verifyCtrl.addListener(() {
+      setState(() {
+        _canDelete = _verifyCtrl.text.trim() == 'DELETE';
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _verifyCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _executeDelete() async {
+    if (!_canDelete) return;
+
+    setState(() => _isProcessing = true);
+
+    try {
+      await ref.read(authRepoProvider).deleteAccount(widget.user.id);
+      await ref.read(authRepoProvider).logout();
+      // App router will automatically handle navigation on logout
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+        Navigator.pop(context); // Close dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(FirebaseErrorParser.getMessage(e)),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Dismiss',
+              textColor: Colors.white,
+              onPressed: () {},
+            ),
           ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      icon: Icon(Icons.warning_rounded, color: colorScheme.error, size: 48),
+      title: const Text('Permanently Delete Account?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'This action is highly destructive and cannot be undone. All personal records, attendance, and data will be wiped.',
+            style: TextStyle(fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 24),
+          RichText(
+            text: TextSpan(
+              style: TextStyle(color: colorScheme.onSurface),
+              children: const [
+                TextSpan(text: 'To confirm, type '),
+                TextSpan(text: 'DELETE', style: TextStyle(fontWeight: FontWeight.bold)),
+                TextSpan(text: ' below:'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _verifyCtrl,
+            enabled: !_isProcessing,
+            textCapitalization: TextCapitalization.characters,
+            decoration: InputDecoration(
+              hintText: 'DELETE',
+              filled: true,
+              fillColor: colorScheme.errorContainer.withValues(alpha: 0.2),
+              focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: colorScheme.error, width: 2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: colorScheme.error.withValues(alpha: 0.5), width: 1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
           ),
         ],
       ),
+      actions: [
+        TextButton(
+          onPressed: _isProcessing ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: _canDelete ? colorScheme.error : colorScheme.surfaceContainerHighest,
+            foregroundColor: _canDelete ? colorScheme.onError : colorScheme.onSurface.withValues(alpha: 0.5),
+          ),
+          onPressed: (_canDelete && !_isProcessing) ? _executeDelete : null,
+          child: _isProcessing
+              ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+          )
+              : const Text('Delete Permanently'),
+        ),
+      ],
     );
-
-    if (confirmed == true) {
-      try {
-        await ref.read(authRepoProvider).deleteAccount(user.id);
-        await ref.read(authRepoProvider).logout();
-      } catch (e) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
   }
 }
 

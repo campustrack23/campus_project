@@ -13,10 +13,10 @@ class TimetableGrid extends StatelessWidget {
   final Map<String, String> subjectLeadTeacherId;
   final Map<String, String> teacherNames;
   final String? todayKey;
-
-  // ✅ ADDED: Pass this from the Teacher's timetable page.
-  // If it is null, the grid knows it's being viewed by a student.
   final String? currentTeacherId;
+
+  // ✅ ADDED: Support for highlighting cancelled classes
+  final Set<String> cancelledEntryIds;
 
   const TimetableGrid({
     super.key,
@@ -29,6 +29,7 @@ class TimetableGrid extends StatelessWidget {
     this.teacherNames = const {},
     this.todayKey,
     this.currentTeacherId,
+    this.cancelledEntryIds = const {},
   });
 
   @override
@@ -60,7 +61,7 @@ class TimetableGrid extends StatelessWidget {
     if (todayKey != null && days.contains(todayKey)) {
       for (int i = 0; i < periodStarts.length; i++) {
         final startMins = _parseTime(periodStarts[i]);
-        final endMins = startMins + 60;
+        final endMins = startMins + 60; // Assuming 1 hour periods
 
         if (nowMins >= startMins && nowMins < endMins) {
           currentPeriodIndex = i;
@@ -73,33 +74,48 @@ class TimetableGrid extends StatelessWidget {
       builder: (context, constraints) {
         final double availableWidth = constraints.maxWidth - 60;
         final double dynamicColWidth = availableWidth / periodStarts.length;
-        final double finalColWidth =
-        dynamicColWidth > 115.0 ? dynamicColWidth : 115.0;
+        final double finalColWidth = dynamicColWidth > 120.0 ? dynamicColWidth : 120.0;
 
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          physics: const BouncingScrollPhysics(),
           child: Container(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Theme.of(context).dividerColor),
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5),
+              ),
             ),
             clipBehavior: Clip.antiAlias,
             child: Table(
+              defaultVerticalAlignment: TableCellVerticalAlignment.middle,
               columnWidths: {
                 0: const FixedColumnWidth(60),
                 for (int i = 0; i < periodStarts.length; i++)
                   i + 1: FixedColumnWidth(finalColWidth),
               },
               children: [
+                // HEADER ROW
                 TableRow(
                   decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest,
+                    color: Theme.of(context).colorScheme.surfaceContainerLow,
+                    border: Border(
+                      bottom: BorderSide(
+                        color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5),
+                      ),
+                    ),
                   ),
                   children: [
-                    _buildHeaderCell(context, 'Day', ''),
+                    _buildHeaderCell(context, '', ''),
                     for (int i = 0; i < periodStarts.length; i++)
                       _buildHeaderCell(
                         context,
@@ -108,15 +124,18 @@ class TimetableGrid extends StatelessWidget {
                       ),
                   ],
                 ),
+                // DAY ROWS
                 for (final day in days)
                   TableRow(
                     decoration: BoxDecoration(
                       color: day == todayKey
-                          ? Theme.of(context)
-                          .colorScheme
-                          .primary
-                          .withValues(alpha: 0.05)
+                          ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.2)
                           : null,
+                      border: Border(
+                        bottom: BorderSide(
+                          color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3),
+                        ),
+                      ),
                     ),
                     children: [
                       _buildDayCell(context, day, isToday: day == todayKey),
@@ -124,8 +143,7 @@ class TimetableGrid extends StatelessWidget {
                         _buildClassCell(
                           context,
                           grid[day]?[i],
-                          isCurrent:
-                          day == todayKey && i == currentPeriodIndex,
+                          isCurrent: day == todayKey && i == currentPeriodIndex,
                           isToday: day == todayKey,
                           periodIndex: i,
                           currentPeriodIndex: currentPeriodIndex,
@@ -152,31 +170,80 @@ class TimetableGrid extends StatelessWidget {
 
   Widget _buildHeaderCell(BuildContext context, String label, String subLabel) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
         children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: Theme.of(context).colorScheme.primary,
+              letterSpacing: 1.2,
+            ),
+          ),
           if (subLabel.isNotEmpty)
-            Text(subLabel, style: const TextStyle(fontSize: 10)),
+            const SizedBox(height: 4),
+          if (subLabel.isNotEmpty)
+            Text(
+              subLabel,
+              style: TextStyle(
+                fontSize: 11,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildDayCell(BuildContext context, String day,
-      {required bool isToday}) {
+  Widget _buildDayCell(BuildContext context, String day, {required bool isToday}) {
     return Container(
-      height: 85,
+      height: 90,
       alignment: Alignment.center,
-      child: RotatedBox(
-        quarterTurns: 3,
-        child: Text(day,
-            style: TextStyle(
+      decoration: BoxDecoration(
+        border: Border(
+          right: BorderSide(
+            color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5),
+          ),
+        ),
+      ),
+      child: isToday
+          ? Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primary,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            )
+          ],
+        ),
+        child: RotatedBox(
+          quarterTurns: 3,
+          child: Text(
+            day.toUpperCase(),
+            style: const TextStyle(
               fontWeight: FontWeight.bold,
-              color: isToday
-                  ? Theme.of(context).colorScheme.primary
-                  : Colors.grey,
-            )),
+              color: Colors.white,
+              letterSpacing: 1.5,
+            ),
+          ),
+        ),
+      )
+          : RotatedBox(
+        quarterTurns: 3,
+        child: Text(
+          day.toUpperCase(),
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            letterSpacing: 1.5,
+          ),
+        ),
       ),
     );
   }
@@ -190,40 +257,47 @@ class TimetableGrid extends StatelessWidget {
         required int currentPeriodIndex,
       }) {
     if (entry == null) {
-      return const SizedBox(height: 85);
+      return const SizedBox(height: 90);
     }
 
     final subjCode = subjectCodes[entry.subjectId] ?? 'SUBJ';
+    final isCancelled = cancelledEntryIds.contains(entry.id);
 
-    // ✅ FIXED LOGIC: Allow only TODAY, current/future periods, AND if the user is a Teacher
     final isFutureOrCurrent = periodIndex >= currentPeriodIndex;
     final isTeacher = currentTeacherId != null;
-    final canOverride = isToday && isFutureOrCurrent && isTeacher;
+    final canOverride = isToday && isFutureOrCurrent && isTeacher && !isCancelled;
 
-    final baseColor = isCurrent
-        ? Theme.of(context).colorScheme.primaryContainer
-        : Theme.of(context).colorScheme.surfaceContainer;
+    // Define colors based on state
+    Color cardColor;
+    Color borderColor = Colors.transparent;
+    Color textColor = Theme.of(context).colorScheme.onSurface;
 
-    final highlightColor = canOverride
-        ? Theme.of(context).colorScheme.secondaryContainer
-        : baseColor;
+    if (isCancelled) {
+      cardColor = Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4);
+      textColor = Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.6);
+    } else if (isCurrent) {
+      cardColor = Theme.of(context).colorScheme.primaryContainer;
+      borderColor = Theme.of(context).colorScheme.primary;
+      textColor = Theme.of(context).colorScheme.onPrimaryContainer;
+    } else if (canOverride) {
+      cardColor = Theme.of(context).colorScheme.secondaryContainer.withValues(alpha: 0.5);
+      borderColor = Theme.of(context).colorScheme.secondary.withValues(alpha: 0.5);
+    } else {
+      cardColor = Theme.of(context).colorScheme.surfaceContainerLow;
+    }
 
     return InkWell(
+      borderRadius: BorderRadius.circular(12),
       onLongPress: canOverride
           ? () async {
         final confirm = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Override Class'),
-            content: Text(
-                'Do you want to override "$subjCode" for today?'),
+            content: Text('Do you want to override "$subjCode" for today?'),
             actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Cancel')),
-              FilledButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const Text('Yes')),
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Yes')),
             ],
           ),
         );
@@ -231,48 +305,88 @@ class TimetableGrid extends StatelessWidget {
         if (confirm != true) return;
 
         final today = DateTime.now();
-        final dateString =
-            "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
+        final dateString = "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
 
-        showDialog(
-          context: context,
-          builder: (_) => OverrideClassDialog(
-            entry: entry,
-            subjectName: subjCode,
-            dateString: dateString,
-            currentTeacherId: currentTeacherId!, // ✅ PASSED THE REQUIRED ID
-          ),
-        );
+        if (context.mounted) {
+          showDialog(
+            context: context,
+            builder: (_) => OverrideClassDialog(
+              entry: entry,
+              subjectName: subjCode,
+              dateString: dateString,
+              currentTeacherId: currentTeacherId!,
+            ),
+          );
+        }
       }
-          : null, // ❌ disabled for past classes or students
-
+          : null,
       child: Container(
-        height: 85,
-        margin: const EdgeInsets.all(4),
+        height: 75,
+        margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         decoration: BoxDecoration(
-          color: highlightColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: canOverride
-                ? Theme.of(context).colorScheme.secondary
-                : Colors.transparent,
-            width: 1.5,
-          ),
+          color: cardColor,
+          borderRadius: BorderRadius.circular(12),
+          border: isCancelled
+              ? Border.all(color: Colors.red.withValues(alpha: 0.3), width: 1.5, style: BorderStyle.solid)
+              : Border.all(color: borderColor, width: 1.5),
+          boxShadow: isCancelled ? [] : [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            )
+          ],
         ),
-        padding: const EdgeInsets.all(6),
+        padding: const EdgeInsets.all(8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(subjCode,
-                style:
-                const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-            const Spacer(),
-            Text(entry.room,
-                style: const TextStyle(
-                    fontSize: 10, fontWeight: FontWeight.bold)),
-            if (isTeacher && !canOverride && isToday)
-              const Text("Locked",
-                  style: TextStyle(fontSize: 9, color: Colors.grey)),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    subjCode,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: textColor,
+                      decoration: isCancelled ? TextDecoration.lineThrough : null,
+                    ),
+                  ),
+                ),
+                if (isCurrent)
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+              ],
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    isCancelled ? 'Cancelled' : entry.room,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: isCancelled ? Colors.red.withValues(alpha: 0.7) : textColor.withValues(alpha: 0.8),
+                    ),
+                  ),
+                ),
+                if (isTeacher && !canOverride && isToday && !isCancelled)
+                  const Icon(Icons.lock_outline, size: 12, color: Colors.grey),
+              ],
+            ),
           ],
         ),
       ),
