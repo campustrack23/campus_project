@@ -86,20 +86,45 @@ class UserAccount {
   }
 
   factory UserAccount.fromMap(String id, Map<String, dynamic> map) {
+    // -------------------------------------------------------------------------
+    // BULLETPROOF SAFE PARSING
+    // -------------------------------------------------------------------------
+
+    // 1. Safe Int Parsing (Fixes the "String is not a subtype of int" crash)
+    int? parsedYear;
+    if (map['year'] != null) {
+      if (map['year'] is int) {
+        parsedYear = map['year'];
+      } else {
+        parsedYear = int.tryParse(map['year'].toString());
+      }
+    }
+
+    // 2. Safe Bool Parsing
+    bool active = true;
+    if (map['isActive'] != null) {
+      if (map['isActive'] is bool) {
+        active = map['isActive'];
+      } else {
+        active = map['isActive'].toString().toLowerCase() != 'false';
+      }
+    }
+
     return UserAccount(
       id: id,
-      role: UserRoleX.fromString(map['role']),
-      name: map['name'] ?? '',
-      email: map['email'],
-      phone: map['phone'] ?? '',
+      // Safely force everything to string if it expects a string
+      role: UserRoleX.fromString(map['role']?.toString() ?? ''),
+      name: map['name']?.toString() ?? '',
+      email: map['email']?.toString(),
+      phone: map['phone']?.toString() ?? '',
       createdAt: DateParser.parse(map['createdAt'], fieldName: 'UserAccount.createdAt'),
-      isActive: map['isActive'] ?? true,
-      collegeRollNo: map['collegeRollNo'],
-      examRollNo: map['examRollNo'],
-      section: map['section'],
-      year: map['year'],
+      isActive: active,
+      collegeRollNo: map['collegeRollNo']?.toString(),
+      examRollNo: map['examRollNo']?.toString(),
+      section: map['section']?.toString(),
+      year: parsedYear,
       qualifications: (map['qualifications'] as List?)?.map((e) => e.toString()).toList() ?? const [],
-      idCardPhotoPath: map['idCardPhotoPath'],
+      idCardPhotoPath: map['idCardPhotoPath']?.toString(),
     );
   }
 
