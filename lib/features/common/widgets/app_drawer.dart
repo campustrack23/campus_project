@@ -132,7 +132,15 @@ class AppDrawer extends ConsumerWidget {
       selectedTileColor: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
       onTap: () {
         Navigator.pop(context); // Close drawer
-        context.go(item.route);
+
+        // NAVIGATION FIX:
+        // Dashboards use 'go' to reset the stack.
+        // Everything else uses 'push' to enable the back button history!
+        if (item.isHome) {
+          context.go(item.route);
+        } else {
+          context.push(item.route);
+        }
       },
     );
   }
@@ -143,7 +151,7 @@ class AppDrawer extends ConsumerWidget {
         return _RoleMenu('Admin Menu', [
           const _DrawerItem('Dashboard', Icons.dashboard, '/home/admin', isHome: true),
           const _DrawerItem('Users', Icons.people, '/admin/users'),
-          const _DrawerItem('Students Directory', Icons.badge_outlined, '/students/directory'), // <-- ADDED HERE
+          const _DrawerItem('Students Directory', Icons.badge_outlined, '/students/directory'),
           const _DrawerItem('Timetable Builder', Icons.calendar_today, '/admin/timetable'),
           const _DrawerItem('Query Tickets', Icons.support_agent, '/admin/query-management'),
           const _DrawerItem('Attendance Overrides', Icons.edit_calendar, '/admin/attendance-overrides'),
@@ -155,7 +163,7 @@ class AppDrawer extends ConsumerWidget {
       case UserRole.teacher:
         return _RoleMenu('Teacher Menu', [
           const _DrawerItem('Dashboard', Icons.dashboard, '/home/teacher', isHome: true),
-          const _DrawerItem('Students Directory', Icons.badge_outlined, '/students/directory'), // <-- ADDED HERE
+          const _DrawerItem('Students Directory', Icons.badge_outlined, '/students/directory'),
           const _DrawerItem('Internal Marks', Icons.grading, '/teacher/internal-marks'),
           const _DrawerItem('Remarks Board', Icons.label_important_outline, '/teacher/remarks-board'),
         ]);

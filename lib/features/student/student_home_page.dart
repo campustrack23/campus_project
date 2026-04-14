@@ -1,3 +1,4 @@
+// lib/features/student/student_home_page.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -36,8 +37,7 @@ class StudentDashboardVM {
 // PROVIDER
 // -----------------------------------------------------------------------------
 
-final studentDashboardProvider =
-FutureProvider.autoDispose<StudentDashboardVM>((ref) async {
+final studentDashboardProvider = FutureProvider.autoDispose<StudentDashboardVM>((ref) async {
   final authRepo = ref.watch(authRepoProvider);
   final ttRepo = ref.watch(timetableRepoProvider);
   final attRepo = ref.watch(attendanceRepoProvider);
@@ -93,38 +93,52 @@ class StudentHomePage extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dashboard'),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        title: const Text('Workspace', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: const [ProfileAvatarAction()],
         leading: Builder(
           builder: (ctx) => IconButton(
-            icon: const Icon(Icons.menu),
+            icon: const Icon(Icons.menu_rounded),
             onPressed: () => Scaffold.of(ctx).openDrawer(),
           ),
         ),
       ),
       drawer: const AppDrawer(),
       body: asyncData.when(
-        loading: () =>
-        const Center(child: CircularProgressIndicator()),
+        loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, _) => AsyncErrorWidget(
           message: err.toString(),
-          onRetry: () =>
-              ref.invalidate(studentDashboardProvider),
+          onRetry: () => ref.invalidate(studentDashboardProvider),
         ),
         data: (vm) => RefreshIndicator(
-          onRefresh: () async =>
-              ref.invalidate(studentDashboardProvider),
+          onRefresh: () async => ref.invalidate(studentDashboardProvider),
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _Header(vm: vm),
-                const SizedBox(height: 24),
-                _AttendanceCard(pct: vm.attendancePct),
-                const SizedBox(height: 24),
-                _QuickActions(vm: vm),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _ModernAttendanceCard(pct: vm.attendancePct),
+                ),
+                const SizedBox(height: 32),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Text(
+                    'Quick Actions',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _QuickActions(vm: vm),
+                ),
+                const SizedBox(height: 40),
               ],
             ),
           ),
@@ -144,96 +158,179 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Welcome, ${vm.student.name.split(' ').first} 👋',
-          style: Theme.of(context)
-              .textTheme
-              .headlineSmall
-              ?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '${vm.section} • Roll No: ${vm.student.collegeRollNo ?? "N/A"}',
-          style: Theme.of(context)
-              .textTheme
-              .bodyMedium
-              ?.copyWith(
-            color:
-            Theme.of(context).colorScheme.secondary,
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
+      decoration: BoxDecoration(
+        color: Theme.of(context).scaffoldBackgroundColor,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Welcome, ${vm.student.name.split(' ').first} 👋',
+            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.5,
+            ),
           ),
-        ),
-      ],
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  vm.section,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'Roll No: ${vm.student.collegeRollNo ?? "N/A"}',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
 
 // -----------------------------------------------------------------------------
-// ATTENDANCE CARD
+// MODERN ATTENDANCE CARD
 // -----------------------------------------------------------------------------
 
-class _AttendanceCard extends StatelessWidget {
+class _ModernAttendanceCard extends StatelessWidget {
   final int pct;
-  const _AttendanceCard({required this.pct});
+  const _ModernAttendanceCard({required this.pct});
 
   @override
   Widget build(BuildContext context) {
-    Color base = Colors.green;
-    if (pct < 75) {
-      base = Colors.red;
-    } else if (pct < 85) {
-      base = Colors.orange;
+    // Dynamic styling based on health
+    List<Color> gradientColors;
+    String statusText;
+    IconData statusIcon;
+
+    if (pct >= 85) {
+      gradientColors = const [Color(0xFF0D9488), Color(0xFF059669)]; // Teal/Green
+      statusText = 'Excellent standing';
+      statusIcon = Icons.check_circle_outline_rounded;
+    } else if (pct >= 75) {
+      gradientColors = const [Color(0xFFD97706), Color(0xFFF59E0B)]; // Orange/Amber
+      statusText = 'Requires attention';
+      statusIcon = Icons.warning_amber_rounded;
+    } else {
+      gradientColors = const [Color(0xFFE11D48), Color(0xFFDC2626)]; // Rose/Red
+      statusText = 'Critical shortage';
+      statusIcon = Icons.error_outline_rounded;
     }
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
         gradient: LinearGradient(
-          colors: [
-            base.withValues(alpha: 0.8),
-            base,
-          ],
+          colors: gradientColors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: base.withValues(alpha: 0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
+            color: gradientColors.last.withValues(alpha: 0.4),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
-      child: Row(
-        mainAxisAlignment:
-        MainAxisAlignment.spaceBetween,
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          const Column(
+          // Background subtle icon
+          Positioned(
+            right: -20,
+            bottom: -20,
+            child: Icon(
+              Icons.analytics_rounded,
+              size: 120,
+              color: Colors.white.withValues(alpha: 0.15),
+            ),
+          ),
+
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Overall Attendance',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(statusIcon, color: Colors.white, size: 16),
+                        const SizedBox(width: 6),
+                        Text(
+                          statusText.toUpperCase(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              SizedBox(height: 4),
-              Text(
-                'Keep it up!',
-                style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12),
+              const SizedBox(height: 24),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$pct%',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 48,
+                          fontWeight: FontWeight.w900,
+                          height: 1.0,
+                          letterSpacing: -1,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Overall Attendance',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ],
-          ),
-          Text(
-            '$pct%',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-            ),
           ),
         ],
       ),
@@ -252,81 +349,166 @@ class _QuickActions extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final actions = [
-      (title: 'Scan QR', icon: Icons.qr_code_scanner, path: '/student/scan-qr'),
-      (title: 'Attendance', icon: Icons.fact_check_outlined, path: '/student/attendance'),
-      (title: 'Timetable', icon: Icons.calendar_today, path: '/student/timetable'),
-      (title: 'Raise Query', icon: Icons.help_center, path: '/student/raise-query'),
+      _ActionData(
+        title: 'Scan QR',
+        icon: Icons.qr_code_scanner_rounded,
+        path: '/student/scan-qr',
+        themeColor: Colors.blue,
+      ),
+      _ActionData(
+        title: 'Attendance',
+        icon: Icons.fact_check_rounded,
+        path: '/student/attendance',
+        themeColor: Colors.teal,
+        badgeText: '${vm.attendancePct}%',
+      ),
+      _ActionData(
+        title: 'Timetable',
+        icon: Icons.calendar_month_rounded,
+        path: '/student/timetable',
+        themeColor: Colors.purple,
+      ),
+      _ActionData(
+        title: 'Raise Query',
+        icon: Icons.support_agent_rounded,
+        path: '/student/raise-query',
+        themeColor: Colors.orange,
+      ),
     ];
 
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: actions.length,
-      gridDelegate:
-      const SliverGridDelegateWithFixedCrossAxisCount(
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
         crossAxisSpacing: 16,
         mainAxisSpacing: 16,
-        childAspectRatio: 1.35,
+        childAspectRatio: 1.1, // Taller cards for modern look
       ),
       itemBuilder: (_, i) {
-        final item = actions[i];
+        return _ModernActionCard(
+          data: actions[i],
+          onTap: () async {
+            if (actions[i].path == '/student/scan-qr') {
+              await context.push(actions[i].path);
+              ref.invalidate(studentDashboardProvider);
+            } else {
+              context.push(actions[i].path);
+            }
+          },
+        );
+      },
+    );
+  }
+}
 
-        return Card(
-          color: Theme.of(context).colorScheme.primary,
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20)),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(20),
-            onTap: () async {
-              if (item.path == '/student/scan-qr') {
-                await context.push(item.path);
-                ref.invalidate(studentDashboardProvider);
-              } else {
-                context.push(item.path);
-              }
-            },
-            child: Column(
-              mainAxisAlignment:
-              MainAxisAlignment.center,
-              children: [
-                Icon(item.icon,
-                    size: 36, color: Colors.white),
-                const SizedBox(height: 8),
-                Text(
-                  item.title,
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold),
-                ),
-                if (item.path.contains('attendance'))
-                  Padding(
-                    padding:
-                    const EdgeInsets.only(top: 6),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
+class _ActionData {
+  final String title;
+  final IconData icon;
+  final String path;
+  final MaterialColor themeColor;
+  final String? badgeText;
+
+  _ActionData({
+    required this.title,
+    required this.icon,
+    required this.path,
+    required this.themeColor,
+    this.badgeText,
+  });
+}
+
+class _ModernActionCard extends StatelessWidget {
+  final _ActionData data;
+  final VoidCallback onTap;
+
+  const _ModernActionCard({required this.data, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(24),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.4),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color:
-                        Colors.white.withValues(alpha: 0.2),
-                        borderRadius:
-                        BorderRadius.circular(10),
+                        color: isDark
+                            ? data.themeColor.shade900.withValues(alpha: 0.5)
+                            : data.themeColor.shade50,
+                        borderRadius: BorderRadius.circular(16),
                       ),
-                      child: Text(
-                        '${vm.attendancePct}%',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      child: Icon(
+                        data.icon,
+                        color: isDark ? data.themeColor.shade200 : data.themeColor.shade700,
+                        size: 28,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      data.title,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Optional Badge (used for attendance %)
+              if (data.badgeText != null)
+                Positioned(
+                  top: 16,
+                  right: 16,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: data.themeColor,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      data.badgeText!,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

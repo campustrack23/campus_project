@@ -640,25 +640,29 @@ class _CommonSettingsSection extends ConsumerWidget {
             await ref.read(authRepoProvider).logout();
           },
         ),
-        const Divider(height: 1),
-        ListTile(
-          leading: Icon(
-            Icons.delete_forever,
-            color: Theme.of(context).colorScheme.error,
-          ),
-          title: Text(
-            'Delete Account',
-            style: TextStyle(
+
+        // 🔴 SECURITY FIX: Only show "Delete Account" if the user is an Admin
+        if (user.role == UserRole.admin) ...[
+          const Divider(height: 1),
+          ListTile(
+            leading: Icon(
+              Icons.delete_forever,
               color: Theme.of(context).colorScheme.error,
-              fontWeight: FontWeight.bold,
+            ),
+            title: Text(
+              'Delete Account',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.error,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            onTap: () => showDialog(
+              context: context,
+              barrierDismissible: false, // Force user to use buttons
+              builder: (_) => _SecureDeleteDialog(user: user),
             ),
           ),
-          onTap: () => showDialog(
-            context: context,
-            barrierDismissible: false, // Force user to use buttons
-            builder: (_) => _SecureDeleteDialog(user: user),
-          ),
-        ),
+        ],
       ],
     );
   }

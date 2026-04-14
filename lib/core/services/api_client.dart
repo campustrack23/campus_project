@@ -2,12 +2,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // Added dotenv import
 
 class ApiClient {
-  // Dynamically load the base URL from the .env file.
-  // We use a getter so it evaluates safely after dotenv.load() is called in main.dart
-  static String get baseUrl => dotenv.env['API_BASE_URL'] ?? 'http://localhost:5000';
+  // Hardcoded base URL
+  static const String baseUrl = 'https://nonavoidable-reconditely-janell.ngrok-free.dev';
 
   static Future<Map<String, String>> _headers() async {
     final user = FirebaseAuth.instance.currentUser;

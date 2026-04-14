@@ -8,9 +8,9 @@ import '../common/widgets/app_drawer.dart';
 import '../common/widgets/async_error_widget.dart';
 import '../../core/models/role.dart';
 import '../../core/models/user.dart';
+import '../../core/utils/firebase_error_parser.dart';
 import '../../main.dart';
 
-// DEFINED HERE TO FIX "Undefined name" ERROR
 final allUsersProvider = FutureProvider.autoDispose<List<UserAccount>>((ref) async {
   return ref.watch(authRepoProvider).allUsers();
 });
@@ -65,15 +65,14 @@ class _UserManagementPageState extends ConsumerState<UserManagementPage> {
             child: asyncUsers.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (err, stack) => AsyncErrorWidget(
-                // Removed 'const' if causing issues, though here it might be fine depending on imports
                 message: err.toString(),
-                onRetry: () => ref.refresh(allUsersProvider),
+                onRetry: () => ref.invalidate(allUsersProvider),
               ),
               data: (users) {
                 final filtered = users.where((u) {
                   return u.name.toLowerCase().contains(_query.toLowerCase()) ||
                       (u.email?.contains(_query) ?? false) ||
-                      (u.collegeRollNo?.contains(_query) ?? false);
+                      (u.collegeRollNo?.toLowerCase().contains(_query.toLowerCase()) ?? false);
                 }).toList();
 
                 if (filtered.isEmpty) return const Center(child: Text('No users found'));
@@ -85,12 +84,13 @@ class _UserManagementPageState extends ConsumerState<UserManagementPage> {
                     final u = filtered[index];
                     return ListTile(
                       leading: CircleAvatar(
-                        child: Text(u.name.isNotEmpty ? u.name[0] : '?'),
+                        child: Text(u.name.isNotEmpty ? u.name[0].toUpperCase() : '?'),
                       ),
-                      title: Text(u.name),
+                      title: Text(u.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                       subtitle: Text('${u.role.label} • ${u.email ?? u.phone}'),
                       trailing: IconButton(
                         icon: const Icon(Icons.edit),
+                        color: Theme.of(context).colorScheme.primary,
                         onPressed: () => _showEditDialog(u),
                       ),
                     );
@@ -101,9 +101,10 @@ class _UserManagementPageState extends ConsumerState<UserManagementPage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddDialog(),
-        child: const Icon(Icons.add),
+        icon: const Icon(Icons.person_add),
+        label: const Text('Add User'),
       ),
     );
   }
@@ -116,9 +117,8 @@ class _UserManagementPageState extends ConsumerState<UserManagementPage> {
       name: '',
       email: '',
       phone: '',
-      // FIXED: Removed passwordHash: ''
       createdAt: DateTime.now(),
-      isActive: true, // explicit default
+      isActive: true,
     );
     await _showEditDialog(newUser, isNew: true);
   }
@@ -154,31 +154,30 @@ class _UserManagementPageState extends ConsumerState<UserManagementPage> {
                       initialValue: role,
                       items: UserRole.values.map((r) => DropdownMenuItem(value: r, child: Text(r.label))).toList(),
                       onChanged: (v) => setState(() => role = v!),
-                      decoration: const InputDecoration(labelText: 'Role'),
+                      decoration: const InputDecoration(labelText: 'Role', border: OutlineInputBorder()),
                     ),
                     const SizedBox(height: 12),
                   ],
                   TextFormField(
                     controller: nameCtrl,
-                    decoration: const InputDecoration(labelText: 'Name'),
+                    decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder()),
                     validator: (v) => v!.isEmpty ? 'Required' : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: emailCtrl,
-                    decoration: const InputDecoration(labelText: 'Email'),
-                    validator: (v) => v!.isEmpty ? 'Required' : null,
+                    decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: phoneCtrl,
-                    decoration: const InputDecoration(labelText: 'Phone'),
+                    decoration: const InputDecoration(labelText: 'Phone', border: OutlineInputBorder()),
                   ),
                   if (isNew) ...[
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: passCtrl,
-                      decoration: const InputDecoration(labelText: 'Password'),
+                      decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder()),
                       obscureText: true,
                       validator: (v) => v!.length < 6 ? 'Min 6 chars' : null,
                     ),
@@ -187,9 +186,9 @@ class _UserManagementPageState extends ConsumerState<UserManagementPage> {
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        Expanded(child: TextFormField(controller: collegeCtrl, decoration: const InputDecoration(labelText: 'College Roll'))),
+                        Expanded(child: TextFormField(controller: collegeCtrl, decoration: const InputDecoration(labelText: 'College Roll', border: OutlineInputBorder()))),
                         const SizedBox(width: 12),
-                        Expanded(child: TextFormField(controller: examCtrl, decoration: const InputDecoration(labelText: 'Exam Roll'))),
+                        Expanded(child: TextFormField(controller: examCtrl, decoration: const InputDecoration(labelText: 'Exam Roll', border: OutlineInputBorder()))),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -200,7 +199,7 @@ class _UserManagementPageState extends ConsumerState<UserManagementPage> {
                             initialValue: year,
                             items: [1, 2, 3, 4].map((y) => DropdownMenuItem(value: y, child: Text('$y Year'))).toList(),
                             onChanged: (v) => year = v,
-                            decoration: const InputDecoration(labelText: 'Year'),
+                            decoration: const InputDecoration(labelText: 'Year', border: OutlineInputBorder()),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -209,7 +208,7 @@ class _UserManagementPageState extends ConsumerState<UserManagementPage> {
                             initialValue: existingSections.contains(section) ? section : null,
                             items: existingSections.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
                             onChanged: (v) => section = v!,
-                            decoration: const InputDecoration(labelText: 'Section'),
+                            decoration: const InputDecoration(labelText: 'Section', border: OutlineInputBorder()),
                           ),
                         ),
                       ],
@@ -220,6 +219,15 @@ class _UserManagementPageState extends ConsumerState<UserManagementPage> {
             ),
           ),
           actions: [
+            if (!isNew)
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.pop(context); // Close the edit dialog
+                  _confirmDeleteUser(u); // Open the secure delete dialog
+                },
+                icon: const Icon(Icons.delete, color: Colors.red),
+                label: const Text('Delete', style: TextStyle(color: Colors.red)),
+              ),
             TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
             FilledButton(
               onPressed: () {
@@ -228,10 +236,10 @@ class _UserManagementPageState extends ConsumerState<UserManagementPage> {
                 Navigator.pop(
                   context,
                   u.copyWith(
-                    id: isNew ? u.id : u.id,
+                    id: u.id,
                     role: role,
                     name: nameCtrl.text.trim(),
-                    email: emailCtrl.text.trim(),
+                    email: emailCtrl.text.trim().isEmpty ? null : emailCtrl.text.trim(),
                     phone: phoneCtrl.text.trim(),
                     collegeRollNo: collegeCtrl.text.trim().isEmpty ? null : collegeCtrl.text.trim(),
                     examRollNo: examCtrl.text.trim().isEmpty ? null : examCtrl.text.trim(),
@@ -249,7 +257,7 @@ class _UserManagementPageState extends ConsumerState<UserManagementPage> {
 
     if (updated != null) {
       if (isNew) {
-        if (!context.mounted) return; // Guard for context use
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Use Seeder or Sign Up page to create new Auth accounts.')));
         await ref.read(authRepoProvider).updateUser(updated);
       } else {
@@ -257,5 +265,160 @@ class _UserManagementPageState extends ConsumerState<UserManagementPage> {
       }
       ref.invalidate(allUsersProvider);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // SECURE ADMIN DELETE FLOW
+  // ---------------------------------------------------------------------------
+  Future<void> _confirmDeleteUser(UserAccount user) async {
+    final bool? deleted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _AdminSecureDeleteDialog(user: user),
+    );
+
+    if (deleted == true) {
+      ref.invalidate(allUsersProvider);
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// SECURE DELETE DIALOG FOR ADMIN
+// -----------------------------------------------------------------------------
+class _AdminSecureDeleteDialog extends ConsumerStatefulWidget {
+  final UserAccount user;
+  const _AdminSecureDeleteDialog({required this.user});
+
+  @override
+  ConsumerState<_AdminSecureDeleteDialog> createState() => _AdminSecureDeleteDialogState();
+}
+
+class _AdminSecureDeleteDialogState extends ConsumerState<_AdminSecureDeleteDialog> {
+  final TextEditingController _verifyCtrl = TextEditingController();
+  bool _canDelete = false;
+  bool _isProcessing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _verifyCtrl.addListener(() {
+      setState(() {
+        _canDelete = _verifyCtrl.text.trim() == 'DELETE';
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _verifyCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _executeDelete() async {
+    if (!_canDelete) return;
+
+    setState(() => _isProcessing = true);
+
+    try {
+      // Deletes the user profile document securely without logging the Admin out
+      await ref.read(authRepoProvider).deleteAccount(widget.user.id);
+
+      if (mounted) {
+        Navigator.pop(context, true); // Return true to trigger UI refresh
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${widget.user.name}\'s account deleted.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+        Navigator.pop(context, false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(FirebaseErrorParser.getMessage(e)),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      icon: Icon(Icons.person_remove_rounded, color: colorScheme.error, size: 48),
+      title: const Text('Delete User Account?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'You are about to permanently delete ${widget.user.name} (${widget.user.role.label}).',
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'This action will remove their profile and database access. It cannot be undone.',
+            style: TextStyle(fontWeight: FontWeight.w400),
+          ),
+          const SizedBox(height: 24),
+          RichText(
+            text: TextSpan(
+              style: TextStyle(color: colorScheme.onSurface),
+              children: const [
+                TextSpan(text: 'To confirm, type '),
+                TextSpan(text: 'DELETE', style: TextStyle(fontWeight: FontWeight.bold)),
+                TextSpan(text: ' below:'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _verifyCtrl,
+            enabled: !_isProcessing,
+            textCapitalization: TextCapitalization.characters,
+            decoration: InputDecoration(
+              hintText: 'DELETE',
+              filled: true,
+              fillColor: colorScheme.errorContainer.withValues(alpha: 0.2),
+              focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: colorScheme.error, width: 2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: colorScheme.error.withValues(alpha: 0.5), width: 1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isProcessing ? null : () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: _canDelete ? colorScheme.error : colorScheme.surfaceContainerHighest,
+            foregroundColor: _canDelete ? colorScheme.onError : colorScheme.onSurface.withValues(alpha: 0.5),
+          ),
+          onPressed: (_canDelete && !_isProcessing) ? _executeDelete : null,
+          child: _isProcessing
+              ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+          )
+              : const Text('Delete User'),
+        ),
+      ],
+    );
   }
 }

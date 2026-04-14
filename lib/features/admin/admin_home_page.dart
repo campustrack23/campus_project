@@ -11,6 +11,10 @@ import '../common/widgets/async_error_widget.dart';
 import '../../core/models/role.dart';
 import '../../core/models/query_ticket.dart';
 
+// -----------------------------------------------------------------------------
+// VIEW MODEL & PROVIDER
+// -----------------------------------------------------------------------------
+
 class AdminDashboardVM {
   final int totalUsers;
   final int totalStudents;
@@ -62,6 +66,10 @@ final adminDashboardProvider = FutureProvider.autoDispose<AdminDashboardVM>((ref
   );
 });
 
+// -----------------------------------------------------------------------------
+// MAIN PAGE
+// -----------------------------------------------------------------------------
+
 class AdminHomePage extends ConsumerWidget {
   const AdminHomePage({super.key});
 
@@ -70,26 +78,28 @@ class AdminHomePage extends ConsumerWidget {
     final asyncData = ref.watch(adminDashboardProvider);
 
     final tools = [
-      _AdminItem('User Management', Icons.manage_accounts, '/admin/users'),
-      _AdminItem('Manage Queries', Icons.live_help, '/admin/queries'),
-      _AdminItem('Timetable Builder', Icons.edit_calendar, '/admin/timetable'),
-      _AdminItem('Attendance Overrides', Icons.edit_note, '/admin/attendance-overrides'),
-      _AdminItem('Internal Marks', Icons.grade, '/admin/internal-marks-overrides'),
-      _AdminItem('Reset Passwords', Icons.lock_reset, '/admin/reset-passwords'),
-      _AdminItem('Students Directory', Icons.people_alt, '/students/directory'),
-      _AdminItem('Teachers Directory', Icons.school, '/teachers/directory'),
-      _AdminItem('Import / Export', Icons.import_export, '/admin/import-export'),
+      _AdminItem('Users', Icons.manage_accounts_rounded, '/admin/users', Colors.blue),
+      _AdminItem('Queries', Icons.support_agent_rounded, '/admin/queries', Colors.orange),
+      _AdminItem('Timetable', Icons.calendar_month_rounded, '/admin/timetable', Colors.purple),
+      _AdminItem('Attendance', Icons.fact_check_rounded, '/admin/attendance-overrides', Colors.teal),
+      _AdminItem('Internal Marks', Icons.military_tech_rounded, '/admin/internal-marks-overrides', Colors.amber),
+      _AdminItem('Passwords', Icons.password_rounded, '/admin/reset-passwords', Colors.red),
+      _AdminItem('Students', Icons.school_rounded, '/students/directory', Colors.indigo),
+      _AdminItem('Teachers', Icons.history_edu_rounded, '/teachers/directory', Colors.brown),
+      _AdminItem('Data Sync', Icons.cloud_sync_rounded, '/admin/import-export', Colors.green),
     ];
 
     return Scaffold(
       appBar: AppBar(
+        elevation: 0,
+        scrolledUnderElevation: 0,
         leading: Builder(
           builder: (ctx) => IconButton(
-            icon: const Icon(Icons.menu),
+            icon: const Icon(Icons.menu_rounded),
             onPressed: () => Scaffold.of(ctx).openDrawer(),
           ),
         ),
-        title: const Text('Admin Dashboard'),
+        title: const Text('Workspace', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: const [ProfileAvatarAction()],
       ),
       drawer: const AppDrawer(),
@@ -101,101 +111,115 @@ class AdminHomePage extends ConsumerWidget {
         ),
         data: (vm) => RefreshIndicator(
           onRefresh: () async => ref.invalidate(adminDashboardProvider),
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Text(
-                'Campus Overview',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final width = constraints.maxWidth;
-                  final half = width > 600 ? (width - 16) / 2 : width;
-
-                  return Wrap(
-                    spacing: 16,
-                    runSpacing: 16,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Premium Header
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _StatCard(
-                        width: half,
-                        icon: Icons.groups,
-                        label: 'Total Users',
-                        value: vm.totalUsers.toString(),
-                        subtext: '${vm.totalStudents} Students • ${vm.totalTeachers} Teachers',
-                        color: Colors.indigo,
-                      ),
-                      _StatCard(
-                        width: half,
-                        icon: Icons.today,
-                        label: 'Attendance Today',
-                        value: vm.attendanceToday.toString(),
-                        subtext: 'Records marked today',
-                        color: Colors.teal,
-                      ),
-                      _StatCard(
-                        width: width,
-                        icon: Icons.notifications_active,
-                        label: 'Open Queries',
-                        value: vm.openQueries.toString(),
-                        subtext: vm.openQueries > 0 ? 'Requires attention' : 'All clear',
-                        color: vm.openQueries > 0 ? Colors.orange : Colors.green,
-                      ),
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 32),
-              Text(
-                'Management Tools',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 200,
-                  childAspectRatio: 1.1,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                ),
-                itemCount: tools.length,
-                itemBuilder: (_, i) {
-                  final item = tools[i];
-                  return Card(
-                    clipBehavior: Clip.antiAlias,
-                    elevation: 2,
-                    color: Theme.of(context).colorScheme.primary,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    child: InkWell(
-                      onTap: () => context.push(item.path),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(item.icon, size: 32, color: Colors.white),
-                            const SizedBox(height: 12),
-                            Text(
-                              item.title,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
+                      Text(
+                        'Admin Dashboard',
+                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.5,
                         ),
                       ),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 32),
-            ],
+                      const SizedBox(height: 4),
+                      Text(
+                        'System status and management tools',
+                        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Statistics Section
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _ModernStatCard(
+                        title: 'Total Users',
+                        value: vm.totalUsers.toString(),
+                        subtitle: '${vm.totalStudents} Students • ${vm.totalTeachers} Teachers',
+                        icon: Icons.people_alt_rounded,
+                        gradientColors: const [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                        fullWidth: true,
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _ModernStatCard(
+                              title: 'Attendance',
+                              value: vm.attendanceToday.toString(),
+                              subtitle: 'Marked today',
+                              icon: Icons.how_to_reg_rounded,
+                              gradientColors: const [Color(0xFF0D9488), Color(0xFF059669)],
+                              fullWidth: false,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _ModernStatCard(
+                              title: 'Queries',
+                              value: vm.openQueries.toString(),
+                              subtitle: vm.openQueries > 0 ? 'Action required' : 'All clear',
+                              icon: Icons.notifications_active_rounded,
+                              gradientColors: vm.openQueries > 0
+                                  ? const [Color(0xFFEA580C), Color(0xFFDC2626)]
+                                  : const [Color(0xFF65A30D), Color(0xFF16A34A)],
+                              fullWidth: false,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 36),
+
+                // Tools Section
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Quick Actions',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                GridView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    childAspectRatio: 0.85,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                  ),
+                  itemCount: tools.length,
+                  itemBuilder: (_, i) => _ModernToolCard(item: tools[i]),
+                ),
+                const SizedBox(height: 40),
+              ],
+            ),
           ),
         ),
       ),
@@ -203,89 +227,174 @@ class AdminHomePage extends ConsumerWidget {
   }
 }
 
+// -----------------------------------------------------------------------------
+// HELPER MODELS & WIDGETS
+// -----------------------------------------------------------------------------
+
 class _AdminItem {
   final String title;
   final IconData icon;
   final String path;
-  _AdminItem(this.title, this.icon, this.path);
+  final MaterialColor colorTheme;
+  _AdminItem(this.title, this.icon, this.path, this.colorTheme);
 }
 
-class _StatCard extends StatelessWidget {
-  final double width;
-  final IconData icon;
-  final String label;
+class _ModernStatCard extends StatelessWidget {
+  final String title;
   final String value;
-  final String subtext;
-  final Color color;
+  final String subtitle;
+  final IconData icon;
+  final List<Color> gradientColors;
+  final bool fullWidth;
 
-  const _StatCard({
-    required this.width,
-    required this.icon,
-    required this.label,
+  const _ModernStatCard({
+    required this.title,
     required this.value,
-    required this.subtext,
-    required this.color,
+    required this.subtitle,
+    required this.icon,
+    required this.gradientColors,
+    required this.fullWidth,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: width,
+      width: fullWidth ? double.infinity : null,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(
+          colors: gradientColors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         boxShadow: [
           BoxShadow(
-            color: color.withValues(alpha: 0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
+            color: gradientColors.last.withValues(alpha: 0.3),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: Colors.white, size: 32),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: Colors.white, size: 24),
+              ),
+              if (fullWidth)
+                const Icon(Icons.analytics_rounded, color: Colors.white38, size: 48),
+            ],
           ),
-          const SizedBox(width: 16),
-          Expanded(
+          SizedBox(height: fullWidth ? 24 : 16),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 32,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -1,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ModernToolCard extends StatelessWidget {
+  final _AdminItem item;
+
+  const _ModernToolCard({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => context.push(item.path),
+        borderRadius: BorderRadius.circular(20),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(
-                  value,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? item.colorTheme.shade900.withValues(alpha: 0.5)
+                        : item.colorTheme.shade50,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    item.icon,
+                    color: isDark ? item.colorTheme.shade200 : item.colorTheme.shade600,
+                    size: 28,
                   ),
                 ),
+                const Spacer(),
                 Text(
-                  label,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtext,
-                  style: const TextStyle(
-                    color: Colors.white54,
+                  item.title,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
                     fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurface,
+                    height: 1.2,
                   ),
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
