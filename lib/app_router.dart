@@ -1,11 +1,16 @@
 // lib/app_router.dart
+
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-// Common
-import 'features/about/about_page.dart';
+import 'core/models/role.dart';
+import 'main.dart';
+
+// Pages
 import 'features/auth/splash_page.dart';
 import 'features/auth/login_page.dart';
+import 'features/about/about_page.dart';
 import 'features/profile/my_profile_page.dart';
 import 'features/profile/update_profile_page.dart';
 import 'features/notifications/notification_page.dart';
@@ -39,63 +44,132 @@ import 'features/admin/import_export_page.dart';
 import 'features/admin/reset_passwords_page.dart';
 import 'features/admin/query_management_page.dart';
 
-import 'core/models/role.dart';
-import 'main.dart';
+// ============================
+// 🔹 ROUTE CONSTANTS
+// ============================
+class AppRoutes {
+  static const splash = '/';
+  static const login = '/login';
 
+  static const studentHome = '/home/student';
+  static const teacherHome = '/home/teacher';
+  static const adminHome = '/home/admin';
+
+  static const student = '/student';
+  static const teacher = '/teacher';
+  static const admin = '/admin';
+
+  static const studentsDirectory = '/students/directory';
+}
+
+// ============================
+// 🔹 ROUTE GUARD SERVICE
+// ============================
+class RouteGuard {
+  static String? checkAccess({
+    required String location,
+    required UserRole role,
+    required Map<String, List<UserRole>> permissions,
+  }) {
+    final sortedKeys = permissions.keys.toList()
+      ..sort((a, b) => b.length.compareTo(a.length));
+
+    for (final prefix in sortedKeys) {
+      if (location.startsWith(prefix)) {
+        final allowed = permissions[prefix]!;
+        if (!allowed.contains(role)) {
+          return _home(role);
+        }
+        break;
+      }
+    }
+
+    return null;
+  }
+
+  static String _home(UserRole role) {
+    switch (role) {
+      case UserRole.admin:
+        return AppRoutes.adminHome;
+      case UserRole.teacher:
+        return AppRoutes.teacherHome;
+      case UserRole.student:
+        return AppRoutes.studentHome;
+    }
+  }
+}
+
+// ============================
+// 🔹 ROUTE CONFIG (SCALABLE)
+// ============================
+class RouteConfig {
+  static final permissions = <String, List<UserRole>>{
+    // Admin
+    AppRoutes.admin: [UserRole.admin],
+    AppRoutes.adminHome: [UserRole.admin],
+
+    // Teacher
+    AppRoutes.teacher: [UserRole.teacher],
+    AppRoutes.teacherHome: [UserRole.teacher],
+
+    // Student
+    AppRoutes.student: [UserRole.student],
+    AppRoutes.studentHome: [UserRole.student],
+
+    // Restricted shared
+    AppRoutes.studentsDirectory: [UserRole.admin, UserRole.teacher],
+  };
+}
+
+// ============================
+// 🔹 ROUTER PROVIDER
+// ============================
 final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
 
-  // Map route prefixes to required roles for explicit security checking
-  final Map<String, List<UserRole>> routePermissions = {
-    '/admin': [UserRole.admin],
-    '/teacher': [UserRole.teacher],
-    '/student': [UserRole.student],
-    // SECURITY FIX: Explicitly block students from viewing the directory
-    '/students/directory': [UserRole.admin, UserRole.teacher],
-  };
-
   return GoRouter(
-    initialLocation: '/',
+    initialLocation: AppRoutes.splash,
+
+    // ============================
+    // 🔁 REDIRECT (ENTERPRISE SAFE)
+    // ============================
     redirect: (context, state) {
       final isLoading = authState.isLoading;
       final user = authState.valueOrNull;
 
-      if (isLoading) return '/'; // Force splash while loading
+      final location = state.matchedLocation;
+      final isLogin = location == AppRoutes.login;
+      final isSplash = location == AppRoutes.splash;
 
-      final isGoingToLogin = state.matchedLocation == '/login';
-      final isGoingToSplash = state.matchedLocation == '/';
+      // 🔹 1. Loading state
+      if (isLoading) return AppRoutes.splash;
 
+      // 🔹 2. Not authenticated
       if (user == null) {
-        if (!isGoingToLogin) return '/login';
-        return null;
+        return isLogin ? null : AppRoutes.login;
       }
 
-      if (isGoingToLogin || isGoingToSplash) {
-        return '/home/${user.role.key}';
+      // 🔹 3. Already logged in
+      if (isLogin || isSplash) {
+        return RouteGuard._home(user.role);
       }
 
-      // 🔴 BUG FIX: Sort prefixes by length (longest first).
-      // This prevents '/students/directory' from accidentally triggering the '/student' ban!
-      final prefixes = routePermissions.keys.toList()
-        ..sort((a, b) => b.length.compareTo(a.length));
+      // 🔹 4. Role-based access control
+      final blockedRoute = RouteGuard.checkAccess(
+        location: location,
+        role: user.role,
+        permissions: RouteConfig.permissions,
+      );
 
-      for (final prefix in prefixes) {
-        if (state.matchedLocation.startsWith(prefix)) {
-          final allowedRoles = routePermissions[prefix]!;
-          if (!allowedRoles.contains(user.role)) {
-            // Kick them back to their home screen if they try to access a blocked route
-            return '/home/${user.role.key}';
-          }
-          // Stop checking once we find the exact matching path
-          break;
-        }
-      }
-
-      return null;
+      return blockedRoute;
     },
+
+    // ============================
+    // 📍 ROUTES
+    // ============================
     routes: [
-      GoRoute(path: '/', builder: (_, __) => const SplashPage()),
-      GoRoute(path: '/login', builder: (_, __) => const LoginPage()),
+      GoRoute(path: AppRoutes.splash, builder: (_, __) => const SplashPage()),
+      GoRoute(path: AppRoutes.login, builder: (_, __) => const LoginPage()),
 
       // ===== COMMON =====
       GoRoute(path: '/about', builder: (_, __) => const AboutPage()),
@@ -106,11 +180,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/assignments', builder: (_, __) => const AssignmentsPage()),
       GoRoute(path: '/teachers/directory', builder: (_, __) => const TeacherDirectoryPage()),
 
-      // ===== RESTRICTED COMMON =====
-      GoRoute(path: '/students/directory', builder: (_, __) => const StudentsDirectoryPage()),
+      // ===== RESTRICTED =====
+      GoRoute(path: AppRoutes.studentsDirectory, builder: (_, __) => const StudentsDirectoryPage()),
 
       // ===== STUDENT =====
-      GoRoute(path: '/home/student', builder: (_, __) => const StudentHomePage()),
+      GoRoute(path: AppRoutes.studentHome, builder: (_, __) => const StudentHomePage()),
       GoRoute(path: '/student/attendance', builder: (_, __) => const StudentAttendancePage()),
       GoRoute(path: '/student/timetable', builder: (_, __) => const TimetablePage()),
       GoRoute(path: '/student/raise-query', builder: (_, __) => const RaiseQueryPage()),
@@ -118,17 +192,17 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/student/scan-qr', builder: (_, __) => const ScanQRPage()),
 
       // ===== TEACHER =====
-      GoRoute(path: '/home/teacher', builder: (_, __) => const TeacherHomePage()),
+      GoRoute(path: AppRoutes.teacherHome, builder: (_, __) => const TeacherHomePage()),
       GoRoute(
         path: '/teacher/generate-qr/:entryId',
-        builder: (ctx, state) {
+        builder: (_, state) {
           final entryId = state.pathParameters['entryId'] ?? '';
           return GenerateQRPage(entryId: entryId);
         },
       ),
       GoRoute(
         path: '/teacher/review-attendance/:sessionId',
-        builder: (ctx, state) {
+        builder: (_, state) {
           final sessionId = state.pathParameters['sessionId'] ?? '';
           return ReviewAttendancePage(sessionId: sessionId);
         },
@@ -137,10 +211,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/teacher/internal-marks', builder: (_, __) => const teacher_marks.InternalMarksPage()),
 
       // ===== ADMIN =====
-      GoRoute(path: '/home/admin', builder: (_, __) => const AdminHomePage()),
+      GoRoute(path: AppRoutes.adminHome, builder: (_, __) => const AdminHomePage()),
       GoRoute(
         path: '/admin/users',
-        builder: (ctx, state) {
+        builder: (_, state) {
           final addStudent = state.uri.queryParameters['add'] == 'student';
           return UserManagementPage(addStudentOnOpen: addStudent);
         },
@@ -152,5 +226,17 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/admin/reset-passwords', builder: (_, __) => const ResetPasswordsPage()),
       GoRoute(path: '/admin/query-management', builder: (_, __) => const QueryManagementPage()),
     ],
+
+    // ============================
+    // 🧯 GLOBAL ERROR PAGE
+    // ============================
+    errorBuilder: (_, state) => Scaffold(
+      body: Center(
+        child: Text(
+          'Page not found\n${state.error}',
+          textAlign: TextAlign.center,
+        ),
+      ),
+    ),
   );
 });

@@ -1,4 +1,5 @@
 // lib/data/auth_repository.dart
+
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
@@ -11,11 +12,19 @@ import '../core/utils/firebase_error_parser.dart';
 
 class AuthRepository {
   final LocalStorage _storage;
-  final fb_auth.FirebaseAuth _auth = fb_auth.FirebaseAuth.instance;
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final fb_auth.FirebaseAuth _auth;
+  final FirebaseFirestore _db;
 
-  AuthRepository(this._storage);
+  AuthRepository(
+      this._storage, {
+        fb_auth.FirebaseAuth? auth,
+        FirebaseFirestore? db,
+      })  : _auth = auth ?? fb_auth.FirebaseAuth.instance,
+        _db = db ?? FirebaseFirestore.instance;
 
+  // ============================
+  // 🔹 COLLECTION REFERENCE
+  // ============================
   CollectionReference<UserAccount> get _usersRef =>
       _db.collection('users').withConverter<UserAccount>(
         fromFirestore: (snap, _) =>
@@ -23,39 +32,47 @@ class AuthRepository {
         toFirestore: (user, _) => user.toMap(),
       );
 
+  // ============================
+  // 🔹 AUTH STATE STREAM
+  // ============================
   Stream<UserAccount?> authStateChanges() {
-    return _auth.authStateChanges().asyncMap((firebaseUser) async {
-      if (firebaseUser == null) return null;
-      try {
-        final doc = await _usersRef.doc(firebaseUser.uid).get();
-        if (doc.exists) {
-          final user = doc.data();
-          if (user != null) {
-            await _storage.writeString('session_user_id', user.id);
-            return user;
-          }
-        }
-      } catch (e) {
-        debugPrint('Error fetching user document: $e');
-      }
-      return null;
-    });
+    return _auth.authStateChanges().asyncMap(_mapFirebaseUserToAppUser);
   }
 
-  Future<UserAccount?> currentUser() async {
-    final firebaseUser = _auth.currentUser;
+  Future<UserAccount?> _mapFirebaseUserToAppUser(
+      fb_auth.User? firebaseUser) async {
     if (firebaseUser == null) return null;
 
     try {
       final doc = await _usersRef.doc(firebaseUser.uid).get();
-      return doc.data();
+
+      if (!doc.exists) {
+        debugPrint('⚠️ No Firestore profile found for UID: ${firebaseUser.uid}');
+        return null;
+      }
+
+      final user = doc.data();
+      if (user != null) {
+        await _storage.writeString('session_user_id', user.id);
+      }
+
+      return user;
     } catch (e) {
+      debugPrint('❌ Error mapping user: $e');
       return null;
     }
   }
 
-  // PERFORMANCE FIX: Prevent O(N) memory/read exhaustion
-  // Implemented safety limits and sorting constraints
+  // ============================
+  // 🔹 CURRENT USER
+  // ============================
+  Future<UserAccount?> currentUser() async {
+    return _mapFirebaseUserToAppUser(_auth.currentUser);
+  }
+
+  // ============================
+  // 🔹 FETCH USERS (SAFE LIMITS)
+  // ============================
   Future<List<UserAccount>> allUsers({int limit = 1000}) async {
     final snapshot = await _usersRef.orderBy('name').limit(limit).get();
     return snapshot.docs.map((doc) => doc.data()).toList();
@@ -67,57 +84,121 @@ class AuthRepository {
         .limit(limit)
         .get();
 
-    final students = snapshot.docs.map((doc) => doc.data()).toList();
-    students.sort((a, b) => a.name.compareTo(b.name));
+    final students = snapshot.docs.map((doc) => doc.data()).toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+
     return students;
   }
 
-  Future<List<UserAccount>> studentsInSection(String section, {int limit = 200}) async {
+  Future<List<UserAccount>> studentsInSection(
+      String section, {
+        int limit = 200,
+      }) async {
     final snapshot = await _usersRef
         .where('role', isEqualTo: UserRole.student.key)
         .where('section', isEqualTo: section)
         .limit(limit)
         .get();
 
-    final students = snapshot.docs.map((doc) => doc.data()).toList();
-    students.sort((a, b) => a.name.compareTo(b.name));
+    final students = snapshot.docs.map((doc) => doc.data()).toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+
     return students;
   }
 
+  // ============================
+  // 🔹 LOGIN (PRODUCTION SAFE)
+  // ============================
   Future<void> loginWithEmail(String email, String password) async {
     try {
-      await _auth.signInWithEmailAndPassword(email: email, password: password);
+      final cred = await _auth.signInWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
+
+      final user = cred.user;
+      if (user == null) {
+        throw Exception('Authentication failed. Please try again.');
+      }
+
+      final doc = await _db.collection('users').doc(user.uid).get();
+
+      // 🔴 CRITICAL CHECK 1: Firestore doc exists
+      if (!doc.exists) {
+        await _auth.signOut();
+        throw Exception(
+          'No profile found. Contact admin or ensure UID matches Firestore.',
+        );
+      }
+
+      final data = doc.data();
+
+      // 🔴 CRITICAL CHECK 2: role exists
+      if (data == null || !data.containsKey('role')) {
+        await _auth.signOut();
+        throw Exception('User profile is corrupted (missing role).');
+      }
+
+      final role = data['role'];
+
+      // 🔴 CRITICAL CHECK 3: enforce lowercase roles
+      if (role is String && role != role.toLowerCase()) {
+        await _auth.signOut();
+        throw Exception(
+            'Invalid role format. Must be lowercase (e.g. "admin").');
+      }
     } catch (e) {
+      if (e is Exception &&
+          (e.toString().contains('profile') ||
+              e.toString().contains('role'))) {
+        rethrow;
+      }
       throw Exception(FirebaseErrorParser.getMessage(e));
     }
   }
 
+  // ============================
+  // 🔹 LOGOUT
+  // ============================
   Future<void> logout() async {
     try {
-      await _storage.clearSession();
-      await _auth.signOut();
+      await Future.wait([
+        _storage.clearSession(),
+        _auth.signOut(),
+      ]);
     } catch (e) {
       throw Exception(FirebaseErrorParser.getMessage(e));
     }
   }
 
+  // ============================
+  // 🔹 UPDATE USER
+  // ============================
   Future<void> updateUser(UserAccount user) async {
     try {
-      await _usersRef.doc(user.id).set(user, SetOptions(merge: true));
+      await _usersRef.doc(user.id).set(
+        user,
+        SetOptions(merge: true),
+      );
     } catch (e) {
       throw Exception(FirebaseErrorParser.getMessage(e));
     }
   }
 
-  // FIXED: Added the missing password reset function
+  // ============================
+  // 🔹 PASSWORD RESET
+  // ============================
   Future<void> requestPasswordReset(String email) async {
     try {
-      await _auth.sendPasswordResetEmail(email: email);
+      await _auth.sendPasswordResetEmail(email: email.trim());
     } catch (e) {
       throw Exception(FirebaseErrorParser.getMessage(e));
     }
   }
 
+  // ============================
+  // 🔹 DELETE CURRENT ACCOUNT
+  // ============================
   Future<void> deleteCurrentUserAccount() async {
     final user = _auth.currentUser;
     if (user == null) return;
@@ -128,20 +209,32 @@ class AuthRepository {
       await _storage.clearSession();
     } on fb_auth.FirebaseAuthException catch (e) {
       if (e.code == 'requires-recent-login') {
-        throw Exception('Please log out and log in again to delete your account.');
+        throw Exception(
+          'Please re-login before deleting your account.',
+        );
       }
       throw Exception(FirebaseErrorParser.getMessage(e));
     }
   }
 
+  // ============================
+  // 🔹 DELETE (ADMIN SAFE)
+  // ============================
   Future<void> deleteAccount(String userId) async {
     try {
       final currentUserRecord = await currentUser();
-      if (currentUserRecord == null) throw Exception('Not logged in');
 
-      if (!currentUserRecord.role.isAdmin && currentUserRecord.id != userId) {
-        throw Exception('Insufficient permissions to delete this account.');
+      if (currentUserRecord == null) {
+        throw Exception('Not logged in');
       }
+
+      final isSelf = currentUserRecord.id == userId;
+      final isAdmin = currentUserRecord.role.isAdmin;
+
+      if (!isAdmin && !isSelf) {
+        throw Exception('Insufficient permissions');
+      }
+
       await _usersRef.doc(userId).delete();
     } catch (e) {
       throw Exception(FirebaseErrorParser.getMessage(e));
