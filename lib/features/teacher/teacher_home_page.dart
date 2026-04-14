@@ -137,74 +137,80 @@ class TeacherHomePage extends ConsumerWidget {
           onRefresh: () async => ref.invalidate(teacherDashboardProvider),
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _Header(vm: vm),
-                const SizedBox(height: 24),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 20),
-                  child: _ActionButtons(),
-                ),
-                const SizedBox(height: 32),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Text(
-                    'Today\'s Classes',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (vm.todaysClasses.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(32.0),
-                    child: Center(
-                      child: Column(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(24),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(Icons.event_available_rounded, size: 48, color: Theme.of(context).colorScheme.primary),
-                          ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'No classes scheduled today!',
-                            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-                          ),
-                          const SizedBox(height: 4),
-                          Text('Enjoy your free time.', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-                        ],
+            child: Center(
+              // 🔴 WEB FIX: Constrains the width so it doesn't stretch on large monitors
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1000),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _Header(vm: vm),
+                    const SizedBox(height: 24),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 20),
+                      child: _ActionButtons(),
+                    ),
+                    const SizedBox(height: 32),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Text(
+                        'Today\'s Classes',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                       ),
                     ),
-                  )
-                else
-                  ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    itemCount: vm.todaysClasses.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (ctx, i) {
-                      final entry = vm.todaysClasses[i];
-                      final subj = vm.subjectsMap[entry.subjectId];
-                      return _ModernClassCard(entry: entry, subject: subj, ref: ref);
-                    },
-                  ),
-                const SizedBox(height: 36),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Text(
-                    'Weekly Timetable',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                  ),
+                    const SizedBox(height: 16),
+                    if (vm.todaysClasses.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(32.0),
+                        child: Center(
+                          child: Column(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(24),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(Icons.event_available_rounded, size: 48, color: Theme.of(context).colorScheme.primary),
+                              ),
+                              const SizedBox(height: 16),
+                              const Text(
+                                'No classes scheduled today!',
+                                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                              ),
+                              const SizedBox(height: 4),
+                              Text('Enjoy your free time.', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        itemCount: vm.todaysClasses.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 16),
+                        itemBuilder: (ctx, i) {
+                          final entry = vm.todaysClasses[i];
+                          final subj = vm.subjectsMap[entry.subjectId];
+                          return _ModernClassCard(entry: entry, subject: subj, ref: ref);
+                        },
+                      ),
+                    const SizedBox(height: 36),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Text(
+                        'Weekly Timetable',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _TimetablePreview(vm: vm),
+                    const SizedBox(height: 60),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                _TimetablePreview(vm: vm),
-                const SizedBox(height: 40),
-              ],
+              ),
             ),
           ),
         ),
@@ -280,35 +286,29 @@ class _ActionButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
-      children: [
-        Expanded(
-          child: _ModernActionCard(
-            title: 'Marks',
-            icon: Icons.assessment_rounded,
-            path: '/teacher/internal-marks',
-            themeColor: Colors.indigo,
-          ),
-        ),
-        SizedBox(width: 12),
-        Expanded(
-          child: _ModernActionCard(
-            title: 'Remarks',
-            icon: Icons.rate_review_rounded,
-            path: '/teacher/remarks-board',
-            themeColor: Colors.teal,
-          ),
-        ),
-        SizedBox(width: 12),
-        Expanded(
-          child: _ModernActionCard(
-            title: 'Students',
-            icon: Icons.people_alt_rounded,
-            path: '/students/directory',
-            themeColor: Colors.purple,
-          ),
-        ),
-      ],
+    final actions = [
+      (title: 'Marks', icon: Icons.assessment_rounded, path: '/teacher/internal-marks', color: Colors.indigo),
+      (title: 'Remarks', icon: Icons.rate_review_rounded, path: '/teacher/remarks-board', color: Colors.teal),
+      (title: 'Students', icon: Icons.people_alt_rounded, path: '/students/directory', color: Colors.purple),
+    ];
+
+    // 🔴 WEB FIX: Uses GridView with fixed extents so cards NEVER stretch vertically or horizontally
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: actions.length,
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 250, // Max width per card
+        mainAxisExtent: 140,     // Fixed height per card
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+      ),
+      itemBuilder: (ctx, i) => _ModernActionCard(
+        title: actions[i].title,
+        icon: actions[i].icon,
+        path: actions[i].path,
+        themeColor: actions[i].color,
+      ),
     );
   }
 }
@@ -329,6 +329,8 @@ class _ModernActionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // 🔴 BORDER FIX: Solid, highly visible borders in light/dark mode
+    final borderColor = isDark ? Colors.white30 : Colors.black26;
 
     return Material(
       color: Colors.transparent,
@@ -341,11 +343,12 @@ class _ModernActionCard extends StatelessWidget {
             color: Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.4),
+              color: borderColor,
+              width: 1.5,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.03),
+                color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -363,7 +366,7 @@ class _ModernActionCard extends StatelessWidget {
                 child: Icon(
                   icon,
                   color: isDark ? themeColor.shade200 : themeColor.shade700,
-                  size: 24,
+                  size: 28,
                 ),
               ),
               const SizedBox(height: 12),
@@ -371,7 +374,7 @@ class _ModernActionCard extends StatelessWidget {
                 title,
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
-                  fontSize: 13,
+                  fontSize: 14,
                   color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
@@ -398,14 +401,21 @@ class _ModernClassCard extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final timeStr = TimeFormatter.formatTime(entry.startTime).split(' ');
 
+    // 🔴 BORDER FIX: Solid, highly visible borders in light/dark mode
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final borderColor = isDark ? Colors.white30 : Colors.black26;
+
     return Container(
       decoration: BoxDecoration(
         color: colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: colorScheme.outlineVariant.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: borderColor,
+          width: 1.5,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
+            color: Colors.black.withValues(alpha: 0.06),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -415,7 +425,7 @@ class _ModernClassCard extends StatelessWidget {
         children: [
           // Left Time Block
           Container(
-            width: 80,
+            width: 90,
             padding: const EdgeInsets.symmetric(vertical: 24),
             decoration: BoxDecoration(
               color: colorScheme.primaryContainer.withValues(alpha: 0.4),
@@ -527,6 +537,9 @@ class _TimetablePreviewState extends State<_TimetablePreview> {
     final dayMap = {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat'};
     final dayKey = dayMap[_selectedDay] ?? 'Mon';
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final borderColor = isDark ? Colors.white30 : Colors.black26;
+
     // Filter entries based on the selected year chip
     final filteredEntries = widget.vm.allEntries.where((e) {
       if (_selectedYear == null) return true;
@@ -579,9 +592,8 @@ class _TimetablePreviewState extends State<_TimetablePreview> {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                     side: BorderSide(
-                      color: isSel
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5),
+                      color: isSel ? Theme.of(context).colorScheme.primary : borderColor,
+                      width: 1.5,
                     ),
                   ),
                   labelStyle: TextStyle(
@@ -603,7 +615,7 @@ class _TimetablePreviewState extends State<_TimetablePreview> {
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5)),
+            border: Border.all(color: borderColor, width: 1.5),
           ),
           child: Center(
             child: Text(
@@ -632,6 +644,9 @@ class _TimetablePreviewState extends State<_TimetablePreview> {
 
   Widget _buildYearChip(String label, int? yearValue) {
     final isSelected = _selectedYear == yearValue;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final borderColor = isDark ? Colors.white30 : Colors.black26;
+
     return FilterChip(
       label: Text(label),
       selected: isSelected,
@@ -646,9 +661,8 @@ class _TimetablePreviewState extends State<_TimetablePreview> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: isSelected
-              ? Theme.of(context).colorScheme.secondary
-              : Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5),
+          color: isSelected ? Theme.of(context).colorScheme.secondary : borderColor,
+          width: 1.5,
         ),
       ),
       labelStyle: TextStyle(

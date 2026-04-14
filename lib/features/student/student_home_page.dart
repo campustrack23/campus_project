@@ -376,29 +376,38 @@ class _QuickActions extends ConsumerWidget {
       ),
     ];
 
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: actions.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
-        childAspectRatio: 1.1, // Taller cards for modern look
-      ),
-      itemBuilder: (_, i) {
-        return _ModernActionCard(
-          data: actions[i],
-          onTap: () async {
-            if (actions[i].path == '/student/scan-qr') {
-              await context.push(actions[i].path);
-              ref.invalidate(studentDashboardProvider);
-            } else {
-              context.push(actions[i].path);
-            }
-          },
-        );
-      },
+    // Using a responsive GridView to ensure cards aren't overly stretched
+    return LayoutBuilder(
+        builder: (context, constraints) {
+          // Decide column count based on screen width
+          int crossAxisCount = constraints.maxWidth > 800 ? 4 : (constraints.maxWidth > 500 ? 3 : 2);
+
+          return GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: actions.length,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: crossAxisCount,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              // Keeps the aspect ratio slightly rectangular, stopping vertical stretching on web
+              childAspectRatio: constraints.maxWidth > 600 ? 1.5 : 1.1,
+            ),
+            itemBuilder: (_, i) {
+              return _ModernActionCard(
+                data: actions[i],
+                onTap: () async {
+                  if (actions[i].path == '/student/scan-qr') {
+                    await context.push(actions[i].path);
+                    ref.invalidate(studentDashboardProvider);
+                  } else {
+                    context.push(actions[i].path);
+                  }
+                },
+              );
+            },
+          );
+        }
     );
   }
 }
@@ -438,13 +447,16 @@ class _ModernActionCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.circular(24),
+            // FIXED: Much stronger, more visible border
             border: Border.all(
-              color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.4),
+              color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.3),
+              width: 1.5,
             ),
+            // FIXED: Slightly stronger shadow
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.03),
-                blurRadius: 10,
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 12,
                 offset: const Offset(0, 4),
               ),
             ],

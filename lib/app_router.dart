@@ -74,14 +74,20 @@ final routerProvider = Provider<GoRouter>((ref) {
         return '/home/${user.role.key}';
       }
 
-      // Explicit role checking
-      for (final prefix in routePermissions.keys) {
+      // 🔴 BUG FIX: Sort prefixes by length (longest first).
+      // This prevents '/students/directory' from accidentally triggering the '/student' ban!
+      final prefixes = routePermissions.keys.toList()
+        ..sort((a, b) => b.length.compareTo(a.length));
+
+      for (final prefix in prefixes) {
         if (state.matchedLocation.startsWith(prefix)) {
           final allowedRoles = routePermissions[prefix]!;
           if (!allowedRoles.contains(user.role)) {
             // Kick them back to their home screen if they try to access a blocked route
             return '/home/${user.role.key}';
           }
+          // Stop checking once we find the exact matching path
+          break;
         }
       }
 
