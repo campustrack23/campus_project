@@ -369,11 +369,11 @@ class _QueryList extends ConsumerWidget {
   }
 
   // ---------------------------------------------------------------------------
-  // MODERN QUERY DETAILS DIALOG
+  // MODERN QUERY DETAILS DIALOG (FIXED LOGIC)
   // ---------------------------------------------------------------------------
 
   Future<void> _showQueryDialog(
-      BuildContext context,
+      BuildContext context, // The main page's context
       WidgetRef ref,
       QueryTicket query,
       UserAccount? student,
@@ -381,11 +381,12 @@ class _QueryList extends ConsumerWidget {
       ) async {
     QueryStatus newStatus = query.status;
     final fmt = DateFormat('EEEE, MMM d, yyyy • h:mm a');
+    bool isSaving = false;
 
     await showDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) {
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (statefulContext, setState) {
           return Dialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             child: Container(
@@ -496,24 +497,48 @@ class _QueryList extends ConsumerWidget {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       TextButton(
-                        onPressed: () => Navigator.pop(ctx),
+                        onPressed: isSaving ? null : () => Navigator.pop(dialogContext),
                         child: const Text('Cancel'),
                       ),
                       const SizedBox(width: 8),
                       FilledButton(
-                        onPressed: () async {
-                          if (newStatus != query.status) {
-                            await ref.read(queryRepoProvider).updateStatus(query.id, newStatus);
-                            ref.invalidate(queryManagementProvider);
+                        onPressed: isSaving ? null : () async {
+                          if (newStatus == query.status) {
+                            Navigator.pop(dialogContext); // No change, just close
+                            return;
                           }
-                          if (context.mounted) {
-                            Navigator.pop(ctx);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Query status updated successfully')),
-                            );
+
+                          setState(() => isSaving = true); // Show loading spinner
+
+                          try {
+                            // 1. Update the database
+                            await ref.read(queryRepoProvider).updateStatus(query.id, newStatus);
+                            // 2. Invalidate the provider to trigger a background refresh
+                            ref.invalidate(queryManagementProvider);
+
+                            // 3. Safely pop the dialog using the dialog's specific context
+                            if (dialogContext.mounted) {
+                              Navigator.pop(dialogContext);
+                            }
+
+                            // 4. Safely show the snackbar using the main page's context
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Query status updated successfully'), backgroundColor: Colors.green),
+                              );
+                            }
+                          } catch (e) {
+                            setState(() => isSaving = false);
+                            if (dialogContext.mounted) {
+                              ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+                              );
+                            }
                           }
                         },
-                        child: const Text('Save Changes'),
+                        child: isSaving
+                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                            : const Text('Save Changes'),
                       ),
                     ],
                   ),

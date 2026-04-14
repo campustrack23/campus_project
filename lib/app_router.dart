@@ -60,6 +60,7 @@ class AppRoutes {
   static const admin = '/admin';
 
   static const studentsDirectory = '/students/directory';
+  static const teachersDirectory = '/teachers/directory'; // ✅ Added specific route
 }
 
 // ============================
@@ -71,6 +72,7 @@ class RouteGuard {
     required UserRole role,
     required Map<String, List<UserRole>> permissions,
   }) {
+    // Sorts by length so '/teachers/directory' is checked BEFORE '/teacher'
     final sortedKeys = permissions.keys.toList()
       ..sort((a, b) => b.length.compareTo(a.length));
 
@@ -80,7 +82,7 @@ class RouteGuard {
         if (!allowed.contains(role)) {
           return _home(role);
         }
-        break;
+        break; // Once we find the longest match, stop checking!
       }
     }
 
@@ -118,6 +120,9 @@ class RouteConfig {
 
     // Restricted shared
     AppRoutes.studentsDirectory: [UserRole.admin, UserRole.teacher],
+
+    // ✅ FIX: Explicitly allow ALL roles to access the teacher directory!
+    AppRoutes.teachersDirectory: [UserRole.admin, UserRole.teacher, UserRole.student],
   };
 }
 
@@ -178,7 +183,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/notifications', builder: (_, __) => const NotificationsPage()),
       GoRoute(path: '/notices', builder: (_, __) => const NoticesPage()),
       GoRoute(path: '/assignments', builder: (_, __) => const AssignmentsPage()),
-      GoRoute(path: '/teachers/directory', builder: (_, __) => const TeacherDirectoryPage()),
+      GoRoute(path: AppRoutes.teachersDirectory, builder: (_, __) => const TeacherDirectoryPage()), // ✅ Replaced hardcoded string
 
       // ===== RESTRICTED =====
       GoRoute(path: AppRoutes.studentsDirectory, builder: (_, __) => const StudentsDirectoryPage()),

@@ -79,7 +79,8 @@ class AdminHomePage extends ConsumerWidget {
 
     final tools = [
       _AdminItem('Users', Icons.manage_accounts_rounded, '/admin/users', Colors.blue),
-      _AdminItem('Queries', Icons.support_agent_rounded, '/admin/queries', Colors.orange),
+      // 🔴 ROUTE FIX: Changed to match app_router.dart exactly
+      _AdminItem('Queries', Icons.support_agent_rounded, '/admin/query-management', Colors.orange),
       _AdminItem('Timetable', Icons.calendar_month_rounded, '/admin/timetable', Colors.purple),
       _AdminItem('Attendance', Icons.fact_check_rounded, '/admin/attendance-overrides', Colors.teal),
       _AdminItem('Internal Marks', Icons.military_tech_rounded, '/admin/internal-marks-overrides', Colors.amber),
