@@ -1,5 +1,6 @@
 // lib/data/query_repository.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart'; // Added for debugPrint
 import 'package:uuid/uuid.dart';
 import '../core/models/query_ticket.dart';
 import '../core/models/notification.dart';
@@ -13,7 +14,6 @@ class QueryRepository {
 
   CollectionReference<QueryTicket> get _queriesRef =>
       _db.collection('queries').withConverter<QueryTicket>(
-        // FIX: Pass snap.id to fromMap
         fromFirestore: (snapshot, _) => QueryTicket.fromMap(snapshot.id, snapshot.data()!),
         toFirestore: (query, _) => query.toMap(),
       );
@@ -71,18 +71,24 @@ class QueryRepository {
     final ticket = doc.data();
     if (ticket == null) return;
 
+    // 1. First, update the query status in Firestore
     await docRef.update({
       'status': status.name,
       'assignedToTeacherId': assignedTo,
       'updatedAt': Timestamp.now(),
     });
 
-    // Notify student via Firestore push notification
-    await _firestoreNotifier.sendToUsers(
-      userIds: [ticket.raisedByStudentId],
-      title: 'Query Update',
-      body: 'Your query "${ticket.title}" is now ${status.label}',
-      type: NotificationType.queryUpdate,
-    );
+    // 2. Try to send the notification, but DO NOT crash if permissions fail
+    try {
+      await _firestoreNotifier.sendToUsers(
+        userIds: [ticket.raisedByStudentId],
+        title: 'Query Update',
+        body: 'Your query "${ticket.title}" is now ${status.label}',
+        type: NotificationType.queryUpdate,
+      );
+    } catch (e) {
+      // Logs the notification error to the console, but allows the UI to proceed successfully
+      debugPrint('Query updated, but notification failed (likely rules): $e');
+    }
   }
 }
