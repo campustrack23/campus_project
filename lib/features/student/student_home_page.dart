@@ -19,14 +19,12 @@ import '../../main.dart';
 
 class StudentDashboardVM {
   final UserAccount student;
-  final String section;
   final int attendancePct;
   final List<TimetableEntry> timetable;
   final Map<String, Subject> subjectsMap;
 
   StudentDashboardVM({
     required this.student,
-    required this.section,
     required this.attendancePct,
     required this.timetable,
     required this.subjectsMap,
@@ -46,6 +44,7 @@ final studentDashboardProvider = FutureProvider.autoDispose<StudentDashboardVM>(
   final student = await authRepo.currentUser();
   if (student == null) throw Exception('Not logged in');
 
+  // Timetable might still rely on section under the hood
   final section = student.section ?? '';
 
   // 2. Fetch data in parallel
@@ -73,7 +72,6 @@ final studentDashboardProvider = FutureProvider.autoDispose<StudentDashboardVM>(
 
   return StudentDashboardVM(
     student: student,
-    section: section,
     attendancePct: pct,
     timetable: timetable,
     subjectsMap: subjectMap,
@@ -149,7 +147,7 @@ class StudentHomePage extends ConsumerWidget {
 }
 
 // -----------------------------------------------------------------------------
-// HEADER
+// HEADER (SEMESTER ONLY)
 // -----------------------------------------------------------------------------
 
 class _Header extends StatelessWidget {
@@ -158,6 +156,8 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final semesterText = vm.student.semester != null ? 'Semester ${vm.student.semester}' : 'Year ${vm.student.year ?? 1}';
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
@@ -184,7 +184,7 @@ class _Header extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  vm.section,
+                  semesterText,
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onPrimaryContainer,
                     fontWeight: FontWeight.bold,
@@ -376,10 +376,8 @@ class _QuickActions extends ConsumerWidget {
       ),
     ];
 
-    // Using a responsive GridView to ensure cards aren't overly stretched
     return LayoutBuilder(
         builder: (context, constraints) {
-          // Decide column count based on screen width
           int crossAxisCount = constraints.maxWidth > 800 ? 4 : (constraints.maxWidth > 500 ? 3 : 2);
 
           return GridView.builder(
@@ -390,7 +388,6 @@ class _QuickActions extends ConsumerWidget {
               crossAxisCount: crossAxisCount,
               crossAxisSpacing: 16,
               mainAxisSpacing: 16,
-              // Keeps the aspect ratio slightly rectangular, stopping vertical stretching on web
               childAspectRatio: constraints.maxWidth > 600 ? 1.5 : 1.1,
             ),
             itemBuilder: (_, i) {
@@ -447,12 +444,10 @@ class _ModernActionCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.circular(24),
-            // FIXED: Much stronger, more visible border
             border: Border.all(
               color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.3),
               width: 1.5,
             ),
-            // FIXED: Slightly stronger shadow
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.06),
@@ -496,7 +491,6 @@ class _ModernActionCard extends StatelessWidget {
                 ),
               ),
 
-              // Optional Badge (used for attendance %)
               if (data.badgeText != null)
                 Positioned(
                   top: 16,
