@@ -16,93 +16,276 @@ class ImportExportPage extends ConsumerStatefulWidget {
 }
 
 class _ImportExportPageState extends ConsumerState<ImportExportPage> {
-  final TextEditingController ctrl = TextEditingController();
+  final TextEditingController _ctrl = TextEditingController();
   bool _isLoading = false;
 
-  final List<String> _collections = ['users', 'subjects', 'timetable', 'attendance'];
+  final List<Map<String, dynamic>> _collections = [
+    {'id': 'users', 'label': 'Users', 'icon': Icons.people_rounded},
+    {'id': 'subjects', 'label': 'Subjects', 'icon': Icons.menu_book_rounded},
+    {'id': 'timetable', 'label': 'Timetable', 'icon': Icons.calendar_month_rounded},
+    {'id': 'attendance', 'label': 'Attendance', 'icon': Icons.fact_check_rounded},
+  ];
+
   String _selectedCollection = 'subjects';
 
   @override
   void dispose() {
-    ctrl.dispose();
+    _ctrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('Import / Export (JSON)'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (ctx) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: Colors.white),
+            onPressed: () => Scaffold.of(ctx).openDrawer(),
+          ),
+        ),
+        title: const Text('Data Migration', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         actions: const [ProfileAvatarAction()],
       ),
       drawer: const AppDrawer(),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            const Text(
-              'Warning: This is a raw database tool. Malformed JSON will fail to import.',
-              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+      body: Column(
+        children: [
+          // -------------------------------------------------------------------
+          // 1. PREMIUM HEADER
+          // -------------------------------------------------------------------
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(20, 100, 20, 24),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [colorScheme.primary, colorScheme.tertiary.withValues(alpha: 0.8)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(32),
+                bottomRight: Radius.circular(32),
+              ),
             ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: _selectedCollection,
-              decoration: const InputDecoration(labelText: 'Target Collection', border: OutlineInputBorder()),
-              items: _collections.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-              onChanged: (v) => setState(() => _selectedCollection = v!),
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: TextField(
-                controller: ctrl,
-                maxLines: null,
-                expands: true,
-                textAlignVertical: TextAlignVertical.top,
-                decoration: const InputDecoration(
-                  hintText: 'Paste JSON array here...',
-                  border: OutlineInputBorder(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), shape: BoxShape.circle),
+                      child: const Icon(Icons.data_object_rounded, color: Colors.white, size: 28),
+                    ),
+                    const SizedBox(width: 16),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('JSON Import Engine', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
+                          Text('Batch execute records directly into Firestore.', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500)),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 20),
+                // Warning Banner
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.redAccent.withValues(alpha: 0.4)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Warning: Raw database tool. Malformed JSON or incorrect schemas will cause app failures.',
+                          style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold, height: 1.3),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              ],
+            ),
+          ),
+
+          // -------------------------------------------------------------------
+          // 2. MAIN CONTENT AREA
+          // -------------------------------------------------------------------
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('1. SELECT TARGET COLLECTION', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: colorScheme.primary, letterSpacing: 1.0)),
+                  const SizedBox(height: 12),
+
+                  // Collection Selector Chips
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: _collections.map((c) {
+                        final isSel = _selectedCollection == c['id'];
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(c['label']),
+                            avatar: Icon(c['icon'], size: 18, color: isSel ? colorScheme.onPrimary : colorScheme.onSurfaceVariant),
+                            selected: isSel,
+                            showCheckmark: false,
+                            selectedColor: colorScheme.primary,
+                            backgroundColor: colorScheme.surface,
+                            labelStyle: TextStyle(
+                              color: isSel ? colorScheme.onPrimary : colorScheme.onSurfaceVariant,
+                              fontWeight: isSel ? FontWeight.bold : FontWeight.w600,
+                            ),
+                            side: BorderSide(color: isSel ? colorScheme.primary : colorScheme.outlineVariant.withValues(alpha: 0.5)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            onSelected: (val) {
+                              if (val) setState(() => _selectedCollection = c['id'] as String);
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('2. PASTE JSON ARRAY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: colorScheme.primary, letterSpacing: 1.0)),
+                      if (_ctrl.text.isNotEmpty)
+                        InkWell(
+                          onTap: () => setState(() => _ctrl.clear()),
+                          child: Text('Clear Editor', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: colorScheme.error)),
+                        )
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // JSON "Code Editor" Input
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF5F5F5), // Code editor feel
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: colorScheme.outlineVariant.withValues(alpha: 0.5), width: 1.5),
+                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4))],
+                      ),
+                      child: TextField(
+                        controller: _ctrl,
+                        maxLines: null,
+                        expands: true,
+                        textAlignVertical: TextAlignVertical.top,
+                        style: const TextStyle(fontFamily: 'monospace', fontSize: 13, height: 1.5),
+                        onChanged: (_) => setState(() {}), // Trigger rebuild for "Clear" button
+                        decoration: InputDecoration(
+                          hintText: '[\n  {\n    "id": "doc1",\n    "name": "Example"\n  }\n]',
+                          hintStyle: TextStyle(fontFamily: 'monospace', color: Colors.grey.withValues(alpha: 0.6)),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.all(16),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // -------------------------------------------------------------------
+                  // 3. EXECUTE BUTTON
+                  // -------------------------------------------------------------------
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        backgroundColor: _ctrl.text.trim().isEmpty ? colorScheme.surfaceContainerHighest : colorScheme.primary,
+                        foregroundColor: _ctrl.text.trim().isEmpty ? colorScheme.onSurfaceVariant : colorScheme.onPrimary,
+                      ),
+                      onPressed: (_isLoading || _ctrl.text.trim().isEmpty) ? null : _importData,
+                      icon: _isLoading
+                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                          : const Icon(Icons.cloud_upload_rounded),
+                      label: Text(
+                          _isLoading ? 'Executing Batch...' : 'Execute Batch Import',
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8), // SafeArea buffer
+                ],
               ),
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: FilledButton.icon(
-                onPressed: _isLoading ? null : _importData,
-                icon: _isLoading
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Icon(Icons.upload),
-                label: const Text('Execute Batch Import'),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // LOGIC
+  // ---------------------------------------------------------------------------
   Future<void> _importData() async {
-    final text = ctrl.text.trim();
+    final text = _ctrl.text.trim();
     if (text.isEmpty) return;
 
     setState(() => _isLoading = true);
 
     try {
-      final List<dynamic> parsed = jsonDecode(text);
-      final List<Map<String, dynamic>> items = parsed.cast<Map<String, dynamic>>();
+      // 1. Validate JSON Format
+      final dynamic parsed;
+      try {
+        parsed = jsonDecode(text);
+      } catch (e) {
+        throw const FormatException('Invalid JSON format. Ensure you have properly quoted keys and valid syntax.');
+      }
 
+      // 2. Validate Data Type
+      if (parsed is! List) {
+        throw const FormatException('JSON root must be an Array [ ] containing Objects { }.');
+      }
+
+      // 3. Cast and Write
+      final List<Map<String, dynamic>> items = parsed.cast<Map<String, dynamic>>();
       await _batchWrite(_selectedCollection, items);
 
       if (mounted) {
-        ctrl.clear();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Import Successful!')));
+        _ctrl.clear();
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Import executed successfully!', style: TextStyle(fontWeight: FontWeight.bold)),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+            )
+        );
+      }
+    } on FormatException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Syntax Error: ${e.message}'), backgroundColor: Colors.orange, behavior: SnackBarBehavior.floating)
+        );
       }
     } catch (e) {
       if (mounted) {
-        // SECURITY FIX: Route error through parser to prevent leaking internal stack traces.
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(FirebaseErrorParser.getMessage(e)))
+            SnackBar(content: Text(FirebaseErrorParser.getMessage(e)), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating)
         );
       }
     } finally {
@@ -121,7 +304,7 @@ class _ImportExportPageState extends ConsumerState<ImportExportPage> {
 
       for (final docData in chunk) {
         final String? id = docData['id'];
-        final DocumentReference ref = id != null
+        final DocumentReference ref = id != null && id.isNotEmpty
             ? db.collection(collection).doc(id)
             : db.collection(collection).doc();
 

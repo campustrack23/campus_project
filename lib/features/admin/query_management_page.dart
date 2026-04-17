@@ -49,20 +49,26 @@ class _QueryManagementPageState extends ConsumerState<QueryManagementPage> {
   @override
   Widget build(BuildContext context) {
     final asyncData = ref.watch(queryManagementProvider);
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
         leading: Builder(
           builder: (ctx) => IconButton(
-            icon: const Icon(Icons.menu),
+            icon: const Icon(Icons.menu_rounded, color: Colors.white),
             onPressed: () => Scaffold.of(ctx).openDrawer(),
           ),
         ),
-        title: const Text('Manage Queries'),
+        title: const Text('Help Desk Dashboard', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
             tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
             onPressed: () => ref.invalidate(queryManagementProvider),
           ),
           const ProfileAvatarAction(),
@@ -85,14 +91,12 @@ class _QueryManagementPageState extends ConsumerState<QueryManagementPage> {
 
           // 1. Apply Search and Subject Filters First
           final filteredQueries = allQueries.where((q) {
-            // Filter by Subject
             if (_selectedSubjectId != null && _selectedSubjectId != 'GENERAL') {
               if (q.subjectId != _selectedSubjectId) return false;
             } else if (_selectedSubjectId == 'GENERAL') {
-              if (q.subjectId != null) return false; // Exclude specific subjects
+              if (q.subjectId != null) return false;
             }
 
-            // Filter by Search Text (Title, Message, Student Name, Roll No)
             if (_searchQuery.isNotEmpty) {
               final queryText = _searchQuery.toLowerCase();
               final student = usersMap[q.raisedByStudentId];
@@ -102,11 +106,8 @@ class _QueryManagementPageState extends ConsumerState<QueryManagementPage> {
               final matchName = student?.name.toLowerCase().contains(queryText) ?? false;
               final matchRoll = student?.collegeRollNo?.toLowerCase().contains(queryText) ?? false;
 
-              if (!matchTitle && !matchMsg && !matchName && !matchRoll) {
-                return false;
-              }
+              if (!matchTitle && !matchMsg && !matchName && !matchRoll) return false;
             }
-
             return true;
           }).toList();
 
@@ -120,63 +121,55 @@ class _QueryManagementPageState extends ConsumerState<QueryManagementPage> {
             length: 4,
             child: Column(
               children: [
-                // --- MODERN FILTER BAR ---
+                // --- PREMIUM HEADER & FILTER BAR ---
                 Container(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(20, 100, 20, 16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [colorScheme.primary, colorScheme.tertiary.withValues(alpha: 0.8)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
                   child: Column(
                     children: [
                       Row(
                         children: [
                           Expanded(
-                            flex: 2,
+                            flex: 3,
                             child: TextField(
+                              style: const TextStyle(color: Colors.black87), // Force dark text on white bg
                               decoration: InputDecoration(
-                                hintText: 'Search queries or students...',
-                                prefixIcon: const Icon(Icons.search, size: 20),
+                                hintText: 'Search tickets or students...',
+                                hintStyle: const TextStyle(color: Colors.black54),
+                                prefixIcon: const Icon(Icons.search_rounded, color: Colors.black54),
                                 filled: true,
-                                fillColor: Theme.of(context).colorScheme.surface,
+                                fillColor: Colors.white.withValues(alpha: 0.95),
                                 isDense: true,
                                 contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  borderSide: BorderSide(
-                                    color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5),
-                                  ),
-                                ),
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  borderSide: BorderSide(
-                                    color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5),
-                                  ),
-                                ),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                               ),
                               onChanged: (v) => setState(() => _searchQuery = v),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            flex: 1,
+                            flex: 2,
                             child: Container(
                               height: 48,
                               padding: const EdgeInsets.symmetric(horizontal: 12),
                               decoration: BoxDecoration(
-                                color: Theme.of(context).colorScheme.surface,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5),
-                                ),
+                                color: Colors.white.withValues(alpha: 0.95),
+                                borderRadius: BorderRadius.circular(16),
                               ),
                               child: DropdownButtonHideUnderline(
                                 child: DropdownButton<String?>(
                                   value: _selectedSubjectId,
                                   isExpanded: true,
-                                  icon: const Icon(Icons.filter_list, size: 20),
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Theme.of(context).colorScheme.onSurface,
-                                    fontWeight: FontWeight.w500,
-                                  ),
+                                  dropdownColor: isDark ? colorScheme.surface : Colors.white,
+                                  icon: const Icon(Icons.filter_list_rounded, color: Colors.black54),
+                                  style: const TextStyle(fontSize: 13, color: Colors.black87, fontWeight: FontWeight.w600),
                                   items: [
                                     const DropdownMenuItem(value: null, child: Text('All Subjects')),
                                     const DropdownMenuItem(value: 'GENERAL', child: Text('General Queries')),
@@ -192,17 +185,27 @@ class _QueryManagementPageState extends ConsumerState<QueryManagementPage> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 20),
+
+                      // --- CUSTOM TAB BAR ---
                       TabBar(
                         isScrollable: true,
                         tabAlignment: TabAlignment.start,
                         dividerColor: Colors.transparent,
-                        indicatorSize: TabBarIndicatorSize.label,
+                        labelColor: colorScheme.primary,
+                        unselectedLabelColor: Colors.white70,
+                        labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                        indicator: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 4, offset: const Offset(0, 2))],
+                        ),
                         tabs: [
-                          Tab(text: 'Open (${open.length})'),
-                          Tab(text: 'In Progress (${inProgress.length})'),
-                          Tab(text: 'Resolved (${resolved.length})'),
-                          Tab(text: 'Rejected (${rejected.length})'),
+                          Tab(text: '  Open (${open.length})  '),
+                          Tab(text: '  In Progress (${inProgress.length})  '),
+                          Tab(text: '  Resolved (${resolved.length})  '),
+                          Tab(text: '  Rejected (${rejected.length})  '),
                         ],
                       ),
                     ],
@@ -211,13 +214,16 @@ class _QueryManagementPageState extends ConsumerState<QueryManagementPage> {
 
                 // --- TAB VIEWS ---
                 Expanded(
-                  child: TabBarView(
-                    children: [
-                      _QueryList(queries: open, users: usersMap, subjects: subjectsMap),
-                      _QueryList(queries: inProgress, users: usersMap, subjects: subjectsMap),
-                      _QueryList(queries: resolved, users: usersMap, subjects: subjectsMap),
-                      _QueryList(queries: rejected, users: usersMap, subjects: subjectsMap),
-                    ],
+                  child: Container(
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                    child: TabBarView(
+                      children: [
+                        _QueryList(queries: open, users: usersMap, subjects: subjectsMap),
+                        _QueryList(queries: inProgress, users: usersMap, subjects: subjectsMap),
+                        _QueryList(queries: resolved, users: usersMap, subjects: subjectsMap),
+                        _QueryList(queries: rejected, users: usersMap, subjects: subjectsMap),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -251,116 +257,142 @@ class _QueryList extends ConsumerWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.inbox_outlined, size: 48, color: Colors.grey.shade400),
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.inbox_rounded, size: 48, color: Theme.of(context).colorScheme.primary),
+            ),
             const SizedBox(height: 16),
-            Text('No queries found.', style: TextStyle(color: Colors.grey.shade600)),
+            Text('No tickets in this queue.', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold, fontSize: 16)),
           ],
         ),
       );
     }
 
     final fmt = DateFormat('MMM d, h:mm a');
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return ListView.separated(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
       itemCount: queries.length,
-      separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
       itemBuilder: (_, i) {
         final query = queries[i];
         final student = users[query.raisedByStudentId];
         final subjectName = query.subjectId != null ? subjects[query.subjectId]?.name : 'General';
 
-        return InkWell(
-          onTap: () => _showQueryDialog(context, ref, query, student, subjectName),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Status Icon Avatar
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: _statusColor(query.status).withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    _statusIcon(query.status),
-                    color: _statusColor(query.status),
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 16),
+        final statusColor = _statusColor(query.status);
+        final statusName = query.status.name.toUpperCase();
 
-                // Details
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              query.title,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: isDark ? Colors.white12 : Colors.black.withValues(alpha: 0.05), width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () => _showQueryDialog(context, ref, query, student, subjectName),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Top Row: Status & Date
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: statusColor.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(_statusIcon(query.status), size: 12, color: statusColor),
+                              const SizedBox(width: 6),
+                              Text(statusName, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: statusColor, letterSpacing: 0.5)),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          fmt.format(query.createdAt.toLocal()),
+                          style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Title & Message
+                    Text(
+                      query.title,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      query.message,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13, height: 1.4),
+                    ),
+                    const SizedBox(height: 16),
+                    Divider(height: 1, color: isDark ? Colors.white12 : Colors.black.withValues(alpha: 0.05)),
+                    const SizedBox(height: 12),
+
+                    // Bottom Row: Student & Subject
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 12,
+                          backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+                          child: Icon(Icons.person_rounded, size: 14, color: Theme.of(context).colorScheme.onSecondaryContainer),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '${student?.name ?? 'Unknown'} ${student?.collegeRollNo != null ? '(${student!.collegeRollNo})' : ''}',
+                            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            subjectName ?? 'General',
+                            style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Theme.of(context).colorScheme.onSurfaceVariant
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Text(
-                            fmt.format(query.createdAt.toLocal()),
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        query.message,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Icon(Icons.person_outline, size: 14, color: Colors.grey.shade600),
-                          const SizedBox(width: 4),
-                          Text(
-                            student?.name ?? 'Unknown Student',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w500),
-                          ),
-                          if (student?.collegeRollNo != null) ...[
-                            Text(
-                              ' (${student!.collegeRollNo})',
-                              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-                            ),
-                          ],
-                          const Spacer(),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.secondaryContainer.withValues(alpha: 0.5),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              subjectName ?? 'General',
-                              style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: Theme.of(context).colorScheme.onSecondaryContainer
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         );
@@ -369,11 +401,11 @@ class _QueryList extends ConsumerWidget {
   }
 
   // ---------------------------------------------------------------------------
-  // MODERN QUERY DETAILS DIALOG (FIXED LOGIC)
+  // MODERN QUERY DETAILS DIALOG
   // ---------------------------------------------------------------------------
 
   Future<void> _showQueryDialog(
-      BuildContext context, // The main page's context
+      BuildContext context,
       WidgetRef ref,
       QueryTicket query,
       UserAccount? student,
@@ -387,162 +419,169 @@ class _QueryList extends ConsumerWidget {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (statefulContext, setState) {
+          final colorScheme = Theme.of(statefulContext).colorScheme;
+          final isDark = Theme.of(statefulContext).brightness == Brightness.dark;
+
           return Dialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            insetPadding: const EdgeInsets.all(16),
             child: Container(
               constraints: const BoxConstraints(maxWidth: 500),
               padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: _statusColor(newStatus).withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(12),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: _statusColor(newStatus).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: _statusColor(newStatus).withValues(alpha: 0.3)),
+                          ),
+                          child: Icon(_statusIcon(newStatus), color: _statusColor(newStatus), size: 28),
                         ),
-                        child: Icon(_statusIcon(newStatus), color: _statusColor(newStatus)),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(query.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 4),
-                            Text(fmt.format(query.createdAt.toLocal()), style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                          ],
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(query.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, height: 1.2)),
+                              const SizedBox(height: 6),
+                              Text(fmt.format(query.createdAt.toLocal()), style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12, fontWeight: FontWeight.w600)),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Message Body
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5)),
+                      ],
                     ),
-                    child: Text(
-                      query.message,
-                      style: const TextStyle(fontSize: 15, height: 1.5),
+                    const SizedBox(height: 24),
+
+                    // Message Body
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: isDark ? colorScheme.surfaceContainerHighest.withValues(alpha: 0.3) : colorScheme.surfaceContainerLow,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: isDark ? Colors.white12 : Colors.black.withValues(alpha: 0.05)),
+                      ),
+                      child: Text(
+                        query.message,
+                        style: const TextStyle(fontSize: 15, height: 1.6),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 24),
+                    const SizedBox(height: 24),
 
-                  // Metadata Grid
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _DetailTile(label: 'Student', value: student?.name ?? 'Unknown'),
+                    // Metadata Grid
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
+                        borderRadius: BorderRadius.circular(16),
                       ),
-                      Expanded(
-                        child: _DetailTile(label: 'Roll No', value: student?.collegeRollNo ?? 'N/A'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _DetailTile(label: 'Phone', value: student?.phone ?? 'N/A'),
-                      ),
-                      Expanded(
-                        child: _DetailTile(label: 'Subject Context', value: subjectName ?? 'General'),
-                      ),
-                    ],
-                  ),
-
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    child: Divider(),
-                  ),
-
-                  // Action Area
-                  const Text('Update Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<QueryStatus>(
-                    initialValue: newStatus,
-                    decoration: InputDecoration(
-                      filled: true,
-                      fillColor: Theme.of(context).colorScheme.surface,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    ),
-                    items: QueryStatus.values.map((s) => DropdownMenuItem(
-                      value: s,
-                      child: Row(
+                      child: Column(
                         children: [
-                          Icon(_statusIcon(s), color: _statusColor(s), size: 18),
-                          const SizedBox(width: 12),
-                          Text(s.name.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          Row(
+                            children: [
+                              Expanded(child: _DetailTile(icon: Icons.person_rounded, label: 'Student', value: student?.name ?? 'Unknown')),
+                              Expanded(child: _DetailTile(icon: Icons.badge_rounded, label: 'Roll No', value: student?.collegeRollNo ?? 'N/A')),
+                            ],
+                          ),
+                          const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Divider(height: 1)),
+                          Row(
+                            children: [
+                              Expanded(child: _DetailTile(icon: Icons.phone_rounded, label: 'Phone', value: student?.phone ?? 'N/A')),
+                              Expanded(child: _DetailTile(icon: Icons.category_rounded, label: 'Context', value: subjectName ?? 'General')),
+                            ],
+                          ),
                         ],
                       ),
-                    )).toList(),
-                    onChanged: (v) => setState(() => newStatus = v ?? query.status),
-                  ),
-                  const SizedBox(height: 24),
+                    ),
 
-                  // Buttons
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: isSaving ? null : () => Navigator.pop(dialogContext),
-                        child: const Text('Cancel'),
+                    const SizedBox(height: 32),
+
+                    // Action Area
+                    Text('RESOLUTION STATUS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, color: colorScheme.primary, letterSpacing: 1.0)),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<QueryStatus>(
+                      initialValue: newStatus,
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: isDark ? colorScheme.surfaceContainerHighest.withValues(alpha: 0.5) : colorScheme.surfaceContainerHighest,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                       ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        onPressed: isSaving ? null : () async {
-                          if (newStatus == query.status) {
-                            Navigator.pop(dialogContext); // No change, just close
-                            return;
-                          }
+                      icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                      items: QueryStatus.values.map((s) => DropdownMenuItem(
+                        value: s,
+                        child: Row(
+                          children: [
+                            Icon(_statusIcon(s), color: _statusColor(s), size: 20),
+                            const SizedBox(width: 12),
+                            Text(s.name.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                          ],
+                        ),
+                      )).toList(),
+                      onChanged: (v) => setState(() => newStatus = v ?? query.status),
+                    ),
+                    const SizedBox(height: 32),
 
-                          setState(() => isSaving = true); // Show loading spinner
-
-                          try {
-                            // 1. Update the database
-                            await ref.read(queryRepoProvider).updateStatus(query.id, newStatus);
-                            // 2. Invalidate the provider to trigger a background refresh
-                            ref.invalidate(queryManagementProvider);
-
-                            // 3. Safely pop the dialog using the dialog's specific context
-                            if (dialogContext.mounted) {
+                    // Buttons
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: isSaving ? null : () => Navigator.pop(dialogContext),
+                          child: const Text('Close', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                        const SizedBox(width: 12),
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: isSaving ? null : () async {
+                            if (newStatus == query.status) {
                               Navigator.pop(dialogContext);
+                              return;
                             }
 
-                            // 4. Safely show the snackbar using the main page's context
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Query status updated successfully'), backgroundColor: Colors.green),
-                              );
+                            setState(() => isSaving = true);
+
+                            try {
+                              await ref.read(queryRepoProvider).updateStatus(query.id, newStatus);
+                              ref.invalidate(queryManagementProvider);
+
+                              if (dialogContext.mounted) Navigator.pop(dialogContext);
+
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Ticket updated successfully!'), backgroundColor: Colors.green),
+                                );
+                              }
+                            } catch (e) {
+                              setState(() => isSaving = false);
+                              if (dialogContext.mounted) {
+                                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                  SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+                                );
+                              }
                             }
-                          } catch (e) {
-                            setState(() => isSaving = false);
-                            if (dialogContext.mounted) {
-                              ScaffoldMessenger.of(dialogContext).showSnackBar(
-                                SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-                              );
-                            }
-                          }
-                        },
-                        child: isSaving
-                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                            : const Text('Save Changes'),
-                      ),
-                    ],
-                  ),
-                ],
+                          },
+                          icon: isSaving
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                              : const Icon(Icons.save_rounded, size: 18),
+                          label: Text(isSaving ? 'Saving...' : 'Apply Update', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           );
@@ -575,19 +614,29 @@ class _QueryList extends ConsumerWidget {
 }
 
 class _DetailTile extends StatelessWidget {
+  final IconData icon;
   final String label;
   final String value;
 
-  const _DetailTile({required this.label, required this.value});
+  const _DetailTile({required this.icon, required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 2),
-        Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+        Icon(icon, size: 16, color: Theme.of(context).colorScheme.onSurfaceVariant),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 2),
+              Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
+            ],
+          ),
+        ),
       ],
     );
   }

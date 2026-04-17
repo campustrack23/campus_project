@@ -23,24 +23,16 @@ final adminMarksProvider = FutureProvider.autoDispose((ref) async {
   final ttRepo = ref.read(timetableRepoProvider);
   final authRepo = ref.read(authRepoProvider);
 
-  final me = await authRepo.currentUser();
-  if (me == null) throw Exception('Not logged in');
-
   final results = await Future.wait([
     marksRepo.getAllMarks(),
     ttRepo.allSubjects(),
     authRepo.allStudents(),
   ]);
 
-  final marks = results[0] as List<InternalMarks>;
-  final subjects = results[1] as List<Subject>;
-  final students = results[2] as List<UserAccount>;
-
   return {
-    'me': me,
-    'marks': marks,
-    'subjects': subjects,
-    'students': students,
+    'marks': results[0] as List<InternalMarks>,
+    'subjects': results[1] as List<Subject>,
+    'students': results[2] as List<UserAccount>,
   };
 });
 
@@ -56,15 +48,37 @@ class _InternalMarksOverridesPageState
     extends ConsumerState<InternalMarksOverridesPage> {
   String _query = '';
   final Map<String, InternalMarks> _edited = {};
+  bool _isSaving = false;
 
   @override
   Widget build(BuildContext context) {
     final asyncData = ref.watch(adminMarksProvider);
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('Marks Overrides'),
-        actions: const [ProfileAvatarAction()],
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (ctx) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: Colors.white),
+            onPressed: () => Scaffold.of(ctx).openDrawer(),
+          ),
+        ),
+        title: const Text(
+          'Academic Overrides',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+            onPressed: () => ref.invalidate(adminMarksProvider),
+          ),
+          const ProfileAvatarAction(),
+        ],
       ),
       drawer: const AppDrawer(),
       body: asyncData.when(
@@ -78,117 +92,184 @@ class _InternalMarksOverridesPageState
           final subjects = data['subjects'] as List<Subject>;
           final students = data['students'] as List<UserAccount>;
 
-          // Filter
           final filtered = marks.where((m) {
-            if (_query.isEmpty) return true;
             final s = students.firstWhere((u) => u.id == m.studentId,
                 orElse: () => _unknownUser);
+            if (_query.isEmpty) return true;
             return s.name.toLowerCase().contains(_query.toLowerCase()) ||
                 (s.collegeRollNo ?? '').contains(_query);
           }).toList();
 
-          return Column(
+          return Stack(
             children: [
-              // Search
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: TextField(
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
-                    hintText: 'Search by student name or roll no',
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (v) => setState(() => _query = v),
-                ),
-              ),
-              Expanded(
-                child: ListView.separated(
-                  itemCount: filtered.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final original = filtered[index];
-                    // Display edited version if exists
-                    final current = _edited[original.id] ?? original;
-
-                    final student = students.firstWhere(
-                            (s) => s.id == current.studentId,
-                        orElse: () => _unknownUser);
-                    final subject = subjects.firstWhere(
-                            (s) => s.id == current.subjectId,
-                        orElse: () => _unknownSubject);
-
-                    final hasChanges = _edited.containsKey(original.id);
-
-                    return ExpansionTile(
-                      leading: CircleAvatar(
-                          child: Text(student.name.isNotEmpty
-                              ? student.name[0]
-                              : '?')),
-                      title: Text(student.name),
-                      subtitle: Text('${subject.name} • Total: ${current.totalMarks}'),
-                      trailing: hasChanges
-                          ? const Icon(Icons.edit, color: Colors.orange)
-                          : null,
+              Column(
+                children: [
+                  // --- PREMIUM HEADER ---
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(20, 100, 20, 32),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [colorScheme.primary, colorScheme.tertiary],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: const BorderRadius.only(
+                        bottomLeft: Radius.circular(32),
+                        bottomRight: Radius.circular(32),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Row(
+                        const Text(
+                          'Internal Marks Ledger',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          style: const TextStyle(color: Colors.black87),
+                          decoration: InputDecoration(
+                            hintText: 'Search student name or roll number...',
+                            hintStyle: const TextStyle(color: Colors.black54),
+                            prefixIcon: const Icon(Icons.search_rounded, color: Colors.black54),
+                            filled: true,
+                            fillColor: Colors.white.withValues(alpha: 0.9),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          onChanged: (v) => setState(() => _query = v),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // --- LIST OF MARKS ---
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? _buildEmptyState()
+                        : ListView.builder(
+                      padding: EdgeInsets.fromLTRB(16, 16, 16, _edited.isNotEmpty ? 100 : 16),
+                      itemCount: filtered.length,
+                      itemBuilder: (context, index) {
+                        final original = filtered[index];
+                        final current = _edited[original.id] ?? original;
+                        final student = students.firstWhere(
+                                (s) => s.id == current.studentId,
+                            orElse: () => _unknownUser);
+                        final subject = subjects.firstWhere(
+                                (s) => s.id == current.subjectId,
+                            orElse: () => _unknownSubject);
+
+                        final hasChanges = _edited.containsKey(original.id);
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: colorScheme.surface,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: hasChanges
+                                  ? colorScheme.primary
+                                  : (isDark ? Colors.white12 : Colors.black.withValues(alpha: 0.05)),
+                              width: hasChanges ? 2 : 1,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.03),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: ExpansionTile(
+                            shape: const RoundedRectangleBorder(side: BorderSide.none),
+                            leading: CircleAvatar(
+                              backgroundColor: colorScheme.primaryContainer,
+                              child: Text(
+                                student.name.isNotEmpty ? student.name[0] : '?',
+                                style: TextStyle(color: colorScheme.onPrimaryContainer, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            title: Text(
+                              student.name,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                            ),
+                            subtitle: Text(
+                              '${subject.name} • Sem ${subject.semester}',
+                              style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+                            ),
+                            trailing: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  '${current.totalMarks.toStringAsFixed(1)} / 30',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 16,
+                                    color: hasChanges ? colorScheme.primary : colorScheme.onSurface,
+                                  ),
+                                ),
+                                if (hasChanges)
+                                  Text(
+                                    'MODIFIED',
+                                    style: TextStyle(
+                                      color: colorScheme.primary,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 1,
+                                    ),
+                                  ),
+                              ],
+                            ),
                             children: [
-                              Expanded(
-                                child: _EditField(
-                                  label: 'Attd (6)',
-                                  value: current.attendanceMarks,
-                                  max: 6,
-                                  onChanged: (v) {
-                                    setState(() {
-                                      _edited[current.id] =
-                                          current.copyWith(attendanceMarks: v);
-                                    });
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _EditField(
-                                  label: 'Assign (12)',
-                                  value: current.assignmentMarks,
-                                  max: 12,
-                                  onChanged: (v) {
-                                    setState(() {
-                                      _edited[current.id] =
-                                          current.copyWith(assignmentMarks: v);
-                                    });
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _EditField(
-                                  label: 'Test (12)',
-                                  value: current.testMarks,
-                                  max: 12,
-                                  onChanged: (v) {
-                                    setState(() {
-                                      _edited[current.id] =
-                                          current.copyWith(testMarks: v);
-                                    });
-                                  },
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                                child: Row(
+                                  children: [
+                                    _buildScoreEditor(
+                                      label: 'Attendance',
+                                      current: current.attendanceMarks,
+                                      max: 6,
+                                      onChanged: (v) => _updateLocalEntry(current, attendance: v),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    _buildScoreEditor(
+                                      label: 'Assignment',
+                                      current: current.assignmentMarks,
+                                      max: 12,
+                                      onChanged: (v) => _updateLocalEntry(current, assignment: v),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    _buildScoreEditor(
+                                      label: 'Mid-Term',
+                                      current: current.testMarks,
+                                      max: 12,
+                                      onChanged: (v) => _updateLocalEntry(current, test: v),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
+
+              // --- FLOATING SAVE BAR ---
               if (_edited.isNotEmpty)
-                _SaveChangesBar(
-                  count: _edited.length,
-                  onCancel: () => setState(() => _edited.clear()),
-                  onSave: () => _saveAll(context),
-                ),
+                _buildFloatingSaveBar(context, colorScheme),
             ],
           );
         },
@@ -196,12 +277,140 @@ class _InternalMarksOverridesPageState
     );
   }
 
+  // --- UI COMPONENTS ---
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.person_search_rounded, size: 64, color: Theme.of(context).colorScheme.outlineVariant),
+          const SizedBox(height: 16),
+          const Text('No records match your search', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScoreEditor({
+    required String label,
+    required double current,
+    required double max,
+    required ValueChanged<double> onChanged,
+  }) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$label (Max $max)',
+            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey),
+          ),
+          const SizedBox(height: 6),
+          TextFormField(
+            initialValue: current.toStringAsFixed(0),
+            keyboardType: TextInputType.number,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+            decoration: InputDecoration(
+              filled: true,
+              fillColor: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+            ),
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'(^\d*\.?\d*)'))],
+            onChanged: (v) {
+              final d = double.tryParse(v) ?? 0.0;
+              if (d <= max) onChanged(d);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFloatingSaveBar(BuildContext context, ColorScheme colorScheme) {
+    return Positioned(
+      bottom: 20,
+      left: 20,
+      right: 20,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(
+          color: colorScheme.primaryContainer,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.2),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${_edited.length} OVERRIDES PENDING',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    color: colorScheme.onPrimaryContainer,
+                    letterSpacing: 1,
+                  ),
+                ),
+                Text(
+                  'Unsaved Changes',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.onPrimaryContainer.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
+            ),
+            const Spacer(),
+            TextButton(
+              onPressed: _isSaving ? null : () => setState(() => _edited.clear()),
+              child: Text('Discard', style: TextStyle(color: colorScheme.onPrimaryContainer)),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: _isSaving ? null : () => _saveAll(context),
+              style: FilledButton.styleFrom(
+                backgroundColor: colorScheme.primary,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: _isSaving
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Apply Changes'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- LOGIC ---
+
+  void _updateLocalEntry(InternalMarks current, {double? attendance, double? assignment, double? test}) {
+    setState(() {
+      _edited[current.id] = current.copyWith(
+        attendanceMarks: attendance ?? current.attendanceMarks,
+        assignmentMarks: assignment ?? current.assignmentMarks,
+        testMarks: test ?? current.testMarks,
+      );
+    });
+  }
+
   Future<void> _saveAll(BuildContext context) async {
+    setState(() => _isSaving = true);
     final batch = FirebaseFirestore.instance.batch();
-    ref.read(internalMarksRepoProvider); // Access mainly for logic if needed, but here doing batch manually for speed
 
     for (final mark in _edited.values) {
-      // Recalc total before saving
       final total = mark.attendanceMarks + mark.assignmentMarks + mark.testMarks;
       final toSave = mark.copyWith(totalMarks: total);
 
@@ -211,22 +420,31 @@ class _InternalMarksOverridesPageState
 
     try {
       await batch.commit();
-      setState(() => _edited.clear());
+      setState(() {
+        _edited.clear();
+        _isSaving = false;
+      });
       ref.invalidate(adminMarksProvider);
 
-      if (context.mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('All changes saved!')));
+          const SnackBar(
+            content: Text('Academic records updated successfully!'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } catch (e) {
-      if (context.mounted) {
+      setState(() => _isSaving = false);
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error saving: $e')));
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
       }
     }
   }
 
-  // FIXED: Removed passwordHash and const
   final _unknownUser = UserAccount(
     id: '?',
     role: UserRole.student,
@@ -246,71 +464,4 @@ class _InternalMarksOverridesPageState
     section: '',
     teacherId: '',
   );
-}
-
-class _EditField extends StatelessWidget {
-  final String label;
-  final double value;
-  final double max;
-  final ValueChanged<double> onChanged;
-
-  const _EditField({
-    required this.label,
-    required this.value,
-    required this.max,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return TextFormField(
-      initialValue: value.toStringAsFixed(0),
-      keyboardType: TextInputType.number,
-      decoration: InputDecoration(
-        labelText: label,
-        border: const OutlineInputBorder(),
-        isDense: true,
-      ),
-      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-      onChanged: (v) {
-        final d = double.tryParse(v) ?? 0.0;
-        if (d <= max) {
-          onChanged(d);
-        }
-      },
-    );
-  }
-}
-
-class _SaveChangesBar extends StatelessWidget {
-  final int count;
-  final VoidCallback onCancel;
-  final VoidCallback onSave;
-
-  const _SaveChangesBar({
-    required this.count,
-    required this.onCancel,
-    required this.onSave,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text('$count unsaved changes',
-              style: const TextStyle(fontWeight: FontWeight.bold)),
-          Row(
-            children: [
-              TextButton(onPressed: onCancel, child: const Text('Cancel')),
-              FilledButton(onPressed: onSave, child: const Text('Save All')),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
 }

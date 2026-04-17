@@ -60,8 +60,14 @@ class AppRoutes {
   static const admin = '/admin';
 
   static const studentsDirectory = '/students/directory';
-  static const teachersDirectory = '/teachers/directory'; // ✅ Added specific route
+  static const teachersDirectory = '/teachers/directory';
 }
+
+// ============================
+// 🔹 SESSION STATE (WORKSPACE SWITCHER)
+// ============================
+// Tracks the active workspace without modifying the database role
+final sessionRoleProvider = StateProvider<UserRole?>((ref) => null);
 
 // ============================
 // 🔹 ROUTE GUARD SERVICE
@@ -72,7 +78,6 @@ class RouteGuard {
     required UserRole role,
     required Map<String, List<UserRole>> permissions,
   }) {
-    // Sorts by length so '/teachers/directory' is checked BEFORE '/teacher'
     final sortedKeys = permissions.keys.toList()
       ..sort((a, b) => b.length.compareTo(a.length));
 
@@ -82,7 +87,7 @@ class RouteGuard {
         if (!allowed.contains(role)) {
           return _home(role);
         }
-        break; // Once we find the longest match, stop checking!
+        break;
       }
     }
 
@@ -102,26 +107,17 @@ class RouteGuard {
 }
 
 // ============================
-// 🔹 ROUTE CONFIG (SCALABLE)
+// 🔹 ROUTE CONFIG
 // ============================
 class RouteConfig {
   static final permissions = <String, List<UserRole>>{
-    // Admin
     AppRoutes.admin: [UserRole.admin],
     AppRoutes.adminHome: [UserRole.admin],
-
-    // Teacher
     AppRoutes.teacher: [UserRole.teacher],
     AppRoutes.teacherHome: [UserRole.teacher],
-
-    // Student
     AppRoutes.student: [UserRole.student],
     AppRoutes.studentHome: [UserRole.student],
-
-    // Restricted shared
     AppRoutes.studentsDirectory: [UserRole.admin, UserRole.teacher],
-
-    // ✅ FIX: Explicitly allow ALL roles to access the teacher directory!
     AppRoutes.teachersDirectory: [UserRole.admin, UserRole.teacher, UserRole.student],
   };
 }
@@ -131,13 +127,11 @@ class RouteConfig {
 // ============================
 final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
+  final sessionRole = ref.watch(sessionRoleProvider); // ✅ Listen to workspace toggles
 
   return GoRouter(
     initialLocation: AppRoutes.splash,
 
-    // ============================
-    // 🔁 REDIRECT (ENTERPRISE SAFE)
-    // ============================
     redirect: (context, state) {
       final isLoading = authState.isLoading;
       final user = authState.valueOrNull;
@@ -146,32 +140,28 @@ final routerProvider = Provider<GoRouter>((ref) {
       final isLogin = location == AppRoutes.login;
       final isSplash = location == AppRoutes.splash;
 
-      // 🔹 1. Loading state
       if (isLoading) return AppRoutes.splash;
 
-      // 🔹 2. Not authenticated
       if (user == null) {
         return isLogin ? null : AppRoutes.login;
       }
 
-      // 🔹 3. Already logged in
+      // ✅ Use the selected workspace role, or default to the database role
+      final effectiveRole = sessionRole ?? user.role;
+
       if (isLogin || isSplash) {
-        return RouteGuard._home(user.role);
+        return RouteGuard._home(effectiveRole);
       }
 
-      // 🔹 4. Role-based access control
       final blockedRoute = RouteGuard.checkAccess(
         location: location,
-        role: user.role,
+        role: effectiveRole,
         permissions: RouteConfig.permissions,
       );
 
       return blockedRoute;
     },
 
-    // ============================
-    // 📍 ROUTES
-    // ============================
     routes: [
       GoRoute(path: AppRoutes.splash, builder: (_, __) => const SplashPage()),
       GoRoute(path: AppRoutes.login, builder: (_, __) => const LoginPage()),
@@ -183,7 +173,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/notifications', builder: (_, __) => const NotificationsPage()),
       GoRoute(path: '/notices', builder: (_, __) => const NoticesPage()),
       GoRoute(path: '/assignments', builder: (_, __) => const AssignmentsPage()),
-      GoRoute(path: AppRoutes.teachersDirectory, builder: (_, __) => const TeacherDirectoryPage()), // ✅ Replaced hardcoded string
+      GoRoute(path: AppRoutes.teachersDirectory, builder: (_, __) => const TeacherDirectoryPage()),
 
       // ===== RESTRICTED =====
       GoRoute(path: AppRoutes.studentsDirectory, builder: (_, __) => const StudentsDirectoryPage()),
@@ -232,9 +222,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/admin/query-management', builder: (_, __) => const QueryManagementPage()),
     ],
 
-    // ============================
-    // 🧯 GLOBAL ERROR PAGE
-    // ============================
     errorBuilder: (_, state) => Scaffold(
       body: Center(
         child: Text(

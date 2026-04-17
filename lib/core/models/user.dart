@@ -15,16 +15,17 @@ class UserAccount {
   final bool isActive;
   final String? collegeRollNo;
   final String? examRollNo;
-  final String? section; // Kept for backend compatibility, hidden in UI
+  final String? section;
   final int? year;
   final List<String> qualifications;
   final String? idCardPhotoPath;
+  final String? gender;
+  final DateTime? dateOfBirth;
+  final String? course;
+  final int? semester;
 
-  // --- NEW FIELDS ---
-  final String? gender; // For both Teacher and Student
-  final DateTime? dateOfBirth; // Parsed from "10-03-2008"
-  final String? course; // e.g., "BACHELOR OF SCIENCE..."
-  final int? semester; // e.g., 2, 4, 6, 8
+  // ✅ NEW: Admin Override Flag
+  final bool isAdmin;
 
   const UserAccount({
     required this.id,
@@ -44,6 +45,7 @@ class UserAccount {
     this.dateOfBirth,
     this.course,
     this.semester,
+    this.isAdmin = false, // Default to false
   });
 
   UserAccount copyWith({
@@ -64,6 +66,7 @@ class UserAccount {
     DateTime? dateOfBirth,
     String? course,
     int? semester,
+    bool? isAdmin,
   }) {
     return UserAccount(
       id: id ?? this.id,
@@ -83,11 +86,11 @@ class UserAccount {
       dateOfBirth: dateOfBirth ?? this.dateOfBirth,
       course: course ?? this.course,
       semester: semester ?? this.semester,
+      isAdmin: isAdmin ?? this.isAdmin,
     );
   }
 
   Map<String, dynamic> toMap() {
-    // Convert DateTime back to "DD-MM-YYYY" if it exists
     String? dobStr;
     if (dateOfBirth != null) {
       final d = dateOfBirth!.day.toString().padLeft(2, '0');
@@ -113,15 +116,11 @@ class UserAccount {
       'date_of_birth': dobStr,
       'course': course,
       'semester': semester,
+      'isAdmin': isAdmin,
     };
   }
 
   factory UserAccount.fromMap(String id, Map<String, dynamic> map) {
-    // -------------------------------------------------------------------------
-    // SAFE PARSING
-    // -------------------------------------------------------------------------
-
-    // 1. Safe Semester & Year Parsing
     int? parsedSemester;
     if (map['semester'] != null) {
       if (map['semester'] is int) {
@@ -140,13 +139,10 @@ class UserAccount {
       }
     }
 
-    // Auto-calculate year from semester if year is missing!
-    // Sem 1/2 = Year 1, Sem 3/4 = Year 2, Sem 5/6 = Year 3, Sem 7/8 = Year 4
     if (parsedYear == null && parsedSemester != null) {
       parsedYear = (parsedSemester / 2.0).ceil();
     }
 
-    // 2. Safe Date of Birth Parsing ("DD-MM-YYYY" -> DateTime)
     DateTime? dob;
     if (map['date_of_birth'] != null) {
       try {
@@ -162,13 +158,22 @@ class UserAccount {
       }
     }
 
-    // 3. Safe Bool Parsing
     bool active = true;
     if (map['isActive'] != null) {
       if (map['isActive'] is bool) {
         active = map['isActive'];
       } else {
         active = map['isActive'].toString().toLowerCase() != 'false';
+      }
+    }
+
+    // Safely parse isAdmin
+    bool adminFlag = false;
+    if (map['isAdmin'] != null) {
+      if (map['isAdmin'] is bool) {
+        adminFlag = map['isAdmin'];
+      } else {
+        adminFlag = map['isAdmin'].toString().toLowerCase() == 'true';
       }
     }
 
@@ -190,6 +195,7 @@ class UserAccount {
       dateOfBirth: dob,
       course: map['course']?.toString(),
       semester: parsedSemester,
+      isAdmin: adminFlag, // ✅ Assigning the parsed flag
     );
   }
 
@@ -213,12 +219,13 @@ class UserAccount {
         other.dateOfBirth == dateOfBirth &&
         other.course == course &&
         other.semester == semester &&
+        other.isAdmin == isAdmin &&
         listEquals(other.qualifications, qualifications);
   }
 
   @override
   int get hashCode => Object.hash(
     id, role, name, email, phone, isActive, createdAt, collegeRollNo,
-    examRollNo, section, year, idCardPhotoPath, gender, dateOfBirth, course, semester, Object.hashAll(qualifications),
+    examRollNo, section, year, idCardPhotoPath, gender, dateOfBirth, course, semester, isAdmin, Object.hashAll(qualifications),
   );
 }

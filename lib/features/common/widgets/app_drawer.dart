@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/models/role.dart';
 import '../../../main.dart';
+import '../../../app_router.dart'; // Needed for sessionRoleProvider
 import 'animated_theme_switcher.dart';
 
 class AppDrawer extends ConsumerWidget {
@@ -13,6 +14,7 @@ class AppDrawer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final userAsync = ref.watch(authStateProvider);
+    final sessionRole = ref.watch(sessionRoleProvider); // Active workspace
 
     return Drawer(
       child: SafeArea(
@@ -24,9 +26,10 @@ class AppDrawer extends ConsumerWidget {
               return const Center(child: Text('Not logged in'));
             }
 
-            final roleMenu = _getMenuForRole(user.role);
+            // Determine effective role for menu generation
+            final effectiveRole = sessionRole ?? user.role;
+            final roleMenu = _getMenuForRole(effectiveRole);
 
-            // SECURITY FIX: Removed "Students Directory" from the common menu
             final commonMenu = [
               const _DrawerItem('Campus Notices', Icons.campaign_outlined, '/notices'),
               const _DrawerItem('Assignments', Icons.assignment_outlined, '/assignments'),
@@ -37,37 +40,34 @@ class AppDrawer extends ConsumerWidget {
 
             return Column(
               children: [
-                _buildHeader(context, user.name, user.email ?? user.phone, user.role.label),
+                // 1. Premium Header
+                _buildHeader(context, user.name, user.email ?? user.phone, effectiveRole.label),
+
+                // 2. Workspace Switcher (If Applicable)
+                if (user.isAdmin || user.role == UserRole.admin)
+                  _buildWorkspaceSwitcher(context, ref, effectiveRole),
+
+                // 3. Scrollable Navigation List
                 Expanded(
                   child: ListView(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                    physics: const BouncingScrollPhysics(),
                     children: [
-                      _buildSectionTitle(roleMenu.title),
+                      // ✅ FIX: Passed context here
+                      _buildSectionTitle(context, roleMenu.title),
                       ...roleMenu.items.map((item) => _buildItem(context, item)),
-                      const Divider(height: 32),
-                      _buildSectionTitle('General'),
+                      const SizedBox(height: 16),
+                      const Divider(height: 1),
+                      const SizedBox(height: 8),
+                      // ✅ FIX: Passed context here
+                      _buildSectionTitle(context, 'General'),
                       ...commonMenu.map((item) => _buildItem(context, item)),
                     ],
                   ),
                 ),
-                const Divider(height: 1),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    children: [
-                      const AnimatedThemeSwitcher(),
-                      const Spacer(),
-                      TextButton.icon(
-                        style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
-                        onPressed: () async {
-                          await ref.read(authRepoProvider).logout();
-                        },
-                        icon: const Icon(Icons.logout),
-                        label: const Text('Logout'),
-                      ),
-                    ],
-                  ),
-                ),
+
+                // 4. Footer (Theme Switcher & Logout)
+                _buildFooter(context, ref),
               ],
             );
           },
@@ -76,34 +76,77 @@ class AppDrawer extends ConsumerWidget {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // PREMIUM HEADER
+  // ---------------------------------------------------------------------------
   Widget _buildHeader(BuildContext context, String name, String subtitle, String role) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Container(
-      padding: const EdgeInsets.all(16),
-      color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4),
-      child: Row(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 60, 20, 24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [colorScheme.primary, colorScheme.tertiary],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            foregroundColor: Theme.of(context).colorScheme.onPrimary,
-            child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?'),
+          Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 3),
+            ),
+            child: CircleAvatar(
+              radius: 36,
+              backgroundColor: colorScheme.surface,
+              foregroundColor: colorScheme.primary,
+              child: Text(
+                name.isNotEmpty ? name[0].toUpperCase() : '?',
+                style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900),
+              ),
+            ),
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                Text(subtitle, style: Theme.of(context).textTheme.bodySmall, overflow: TextOverflow.ellipsis),
-                const SizedBox(height: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.secondary,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(role.toUpperCase(), style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
-                ),
-              ],
+          const SizedBox(height: 16),
+          Text(
+            name,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 20,
+              color: Colors.white,
+              letterSpacing: -0.5,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.white.withValues(alpha: 0.8),
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.25),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              role.toUpperCase(),
+              style: const TextStyle(
+                fontSize: 10,
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.0,
+              ),
             ),
           ),
         ],
@@ -111,71 +154,193 @@ class AppDrawer extends ConsumerWidget {
     );
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 16, top: 8, bottom: 8),
-      child: Text(
-        title.toUpperCase(),
-        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey),
+  // ---------------------------------------------------------------------------
+  // WORKSPACE SWITCHER
+  // ---------------------------------------------------------------------------
+  Widget _buildWorkspaceSwitcher(BuildContext context, WidgetRef ref, UserRole currentEffectiveRole) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isCurrentlyAdmin = currentEffectiveRole == UserRole.admin;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      decoration: BoxDecoration(
+        color: colorScheme.secondaryContainer.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colorScheme.secondary.withValues(alpha: 0.2)),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            final newRole = isCurrentlyAdmin ? UserRole.teacher : UserRole.admin;
+            ref.read(sessionRoleProvider.notifier).state = newRole;
+            Navigator.pop(context); // Close drawer
+            context.go(newRole == UserRole.admin ? '/home/admin' : '/home/teacher');
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Row(
+              children: [
+                Icon(Icons.swap_horiz_rounded, color: colorScheme.secondary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Active Workspace',
+                        style: TextStyle(fontSize: 10, color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        isCurrentlyAdmin ? 'Switch to Teacher' : 'Switch to Admin',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: colorScheme.secondary, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, size: 20, color: colorScheme.secondary),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildItem(BuildContext context, _DrawerItem item) {
-    final currentRoute = GoRouterState.of(context).uri.path;
-    final isSelected = currentRoute == item.route || (item.isHome && currentRoute.startsWith('/home'));
-
-    return ListTile(
-      leading: Icon(item.icon, color: isSelected ? Theme.of(context).colorScheme.primary : null),
-      title: Text(item.title, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
-      selected: isSelected,
-      selectedTileColor: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
-      onTap: () {
-        Navigator.pop(context); // Close drawer
-
-        // NAVIGATION FIX:
-        // Dashboards use 'go' to reset the stack.
-        // Everything else uses 'push' to enable the back button history!
-        if (item.isHome) {
-          context.go(item.route);
-        } else {
-          context.push(item.route);
-        }
-      },
+  // ---------------------------------------------------------------------------
+  // SECTION TITLE
+  // ---------------------------------------------------------------------------
+  // ✅ FIX: Added BuildContext context parameter
+  Widget _buildSectionTitle(BuildContext context, String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
+      child: Text(
+        title.toUpperCase(),
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+          letterSpacing: 1.2,
+        ),
+      ),
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // MENU ITEM TILE
+  // ---------------------------------------------------------------------------
+  Widget _buildItem(BuildContext context, _DrawerItem item) {
+    final currentRoute = GoRouterState.of(context).uri.path;
+    final isSelected = currentRoute == item.route || (item.isHome && currentRoute.startsWith('/home'));
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Material(
+        color: Colors.transparent,
+        child: ListTile(
+          dense: true,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          leading: Icon(
+            item.icon,
+            color: isSelected ? colorScheme.primary : colorScheme.onSurfaceVariant,
+            size: 22,
+          ),
+          title: Text(
+            item.title,
+            style: TextStyle(
+              fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+              color: isSelected ? colorScheme.primary : colorScheme.onSurface,
+              fontSize: 14,
+            ),
+          ),
+          selected: isSelected,
+          selectedTileColor: colorScheme.primaryContainer.withValues(alpha: 0.5),
+          hoverColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          onTap: () {
+            Navigator.pop(context);
+            if (item.isHome) {
+              context.go(item.route);
+            } else {
+              context.push(item.route);
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // FOOTER (THEME & LOGOUT)
+  // ---------------------------------------------------------------------------
+  Widget _buildFooter(BuildContext context, WidgetRef ref) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border(top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3))),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const AnimatedThemeSwitcher(),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.errorContainer,
+              foregroundColor: Theme.of(context).colorScheme.onErrorContainer,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () async {
+              ref.invalidate(sessionRoleProvider); // Clear session
+              await ref.read(authRepoProvider).logout();
+            },
+            icon: const Icon(Icons.logout_rounded, size: 18),
+            label: const Text('Sign Out', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // MENU CONFIGURATIONS
+  // ---------------------------------------------------------------------------
   _RoleMenu _getMenuForRole(UserRole role) {
     switch (role) {
       case UserRole.admin:
-        return _RoleMenu('Admin Menu', [
-          const _DrawerItem('Dashboard', Icons.dashboard, '/home/admin', isHome: true),
-          const _DrawerItem('Users', Icons.people, '/admin/users'),
-          const _DrawerItem('Students Directory', Icons.badge_outlined, '/students/directory'),
-          const _DrawerItem('Timetable Builder', Icons.calendar_today, '/admin/timetable'),
-          const _DrawerItem('Query Tickets', Icons.support_agent, '/admin/query-management'),
-          const _DrawerItem('Attendance Overrides', Icons.edit_calendar, '/admin/attendance-overrides'),
+        return _RoleMenu('Admin Tools', [
+          const _DrawerItem('Dashboard', Icons.dashboard_rounded, '/home/admin', isHome: true),
+          const _DrawerItem('Users', Icons.people_rounded, '/admin/users'),
+          const _DrawerItem('Students Directory', Icons.badge_rounded, '/students/directory'),
+          const _DrawerItem('Timetable Builder', Icons.calendar_month_rounded, '/admin/timetable'),
+          const _DrawerItem('Query Tickets', Icons.support_agent_rounded, '/admin/query-management'),
+          const _DrawerItem('Attendance Overrides', Icons.edit_calendar_rounded, '/admin/attendance-overrides'),
           const _DrawerItem('Marks Overrides', Icons.edit_document, '/admin/internal-marks-overrides'),
-          const _DrawerItem('Reset Passwords', Icons.lock_reset, '/admin/reset-passwords'),
-          const _DrawerItem('Import Data', Icons.upload_file, '/admin/import-export'),
+          const _DrawerItem('Reset Passwords', Icons.lock_reset_rounded, '/admin/reset-passwords'),
+          const _DrawerItem('Import Data', Icons.upload_file_rounded, '/admin/import-export'),
         ]);
 
       case UserRole.teacher:
-        return _RoleMenu('Teacher Menu', [
-          const _DrawerItem('Dashboard', Icons.dashboard, '/home/teacher', isHome: true),
-          const _DrawerItem('Students Directory', Icons.badge_outlined, '/students/directory'),
-          const _DrawerItem('Internal Marks', Icons.grading, '/teacher/internal-marks'),
-          const _DrawerItem('Remarks Board', Icons.label_important_outline, '/teacher/remarks-board'),
+        return _RoleMenu('Faculty Tools', [
+          const _DrawerItem('Dashboard', Icons.dashboard_rounded, '/home/teacher', isHome: true),
+          const _DrawerItem('Students Directory', Icons.badge_rounded, '/students/directory'),
+          const _DrawerItem('Internal Marks', Icons.grading_rounded, '/teacher/internal-marks'),
+          const _DrawerItem('Remarks Board', Icons.label_important_rounded, '/teacher/remarks-board'),
         ]);
 
       case UserRole.student:
-        return _RoleMenu('Student Menu', [
-          const _DrawerItem('Dashboard', Icons.dashboard, '/home/student', isHome: true),
-          const _DrawerItem('Scan QR', Icons.qr_code_scanner, '/student/scan-qr'),
-          const _DrawerItem('Attendance', Icons.fact_check_outlined, '/student/attendance'),
-          const _DrawerItem('Marks', Icons.score, '/student/internal-marks'),
-          const _DrawerItem('Timetable', Icons.calendar_month_outlined, '/student/timetable'),
-          const _DrawerItem('Raise Query', Icons.live_help_outlined, '/student/raise-query'),
+        return _RoleMenu('Student Portal', [
+          const _DrawerItem('Dashboard', Icons.dashboard_rounded, '/home/student', isHome: true),
+          const _DrawerItem('Scan QR', Icons.qr_code_scanner_rounded, '/student/scan-qr'),
+          const _DrawerItem('Attendance', Icons.fact_check_rounded, '/student/attendance'),
+          const _DrawerItem('Marks', Icons.score_rounded, '/student/internal-marks'),
+          const _DrawerItem('Timetable', Icons.calendar_month_rounded, '/student/timetable'),
+          const _DrawerItem('Raise Query', Icons.live_help_rounded, '/student/raise-query'),
         ]);
     }
   }
@@ -192,11 +357,5 @@ class _DrawerItem {
   final IconData icon;
   final String route;
   final bool isHome;
-
-  const _DrawerItem(
-      this.title,
-      this.icon,
-      this.route, {
-        this.isHome = false,
-      });
+  const _DrawerItem(this.title, this.icon, this.route, {this.isHome = false});
 }

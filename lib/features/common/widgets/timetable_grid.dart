@@ -1,10 +1,13 @@
 // lib/features/common/widgets/timetable_grid.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../core/models/timetable_entry.dart';
 import '../../../core/utils/time_formatter.dart';
-import 'override_class_dialog.dart'; // ✅ Fixed path
+import '../../teacher/teacher_home_page.dart'; // Needed to refresh the teacher dashboard provider
+import 'override_class_dialog.dart';
 
-class TimetableGrid extends StatelessWidget {
+class TimetableGrid extends ConsumerWidget {
   final List<String> days;
   final List<String> periodStarts;
   final List<String> periodLabels;
@@ -14,8 +17,6 @@ class TimetableGrid extends StatelessWidget {
   final Map<String, String> teacherNames;
   final String? todayKey;
   final String? currentTeacherId;
-
-  // ✅ ADDED: Support for highlighting cancelled classes
   final Set<String> cancelledEntryIds;
 
   const TimetableGrid({
@@ -33,7 +34,7 @@ class TimetableGrid extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final Map<String, Map<int, TimetableEntry>> grid = {
       for (final d in days) d: {}
     };
@@ -142,6 +143,7 @@ class TimetableGrid extends StatelessWidget {
                       for (int i = 0; i < periodStarts.length; i++)
                         _buildClassCell(
                           context,
+                          ref,
                           grid[day]?[i],
                           isCurrent: day == todayKey && i == currentPeriodIndex,
                           isToday: day == todayKey,
@@ -250,6 +252,7 @@ class TimetableGrid extends StatelessWidget {
 
   Widget _buildClassCell(
       BuildContext context,
+      WidgetRef ref,
       TimetableEntry? entry, {
         required bool isCurrent,
         required bool isToday,
@@ -267,7 +270,6 @@ class TimetableGrid extends StatelessWidget {
     final isTeacher = currentTeacherId != null;
     final canOverride = isToday && isFutureOrCurrent && isTeacher && !isCancelled;
 
-    // Define colors based on state
     Color cardColor;
     Color borderColor = Colors.transparent;
     Color textColor = Theme.of(context).colorScheme.onSurface;
@@ -304,17 +306,15 @@ class TimetableGrid extends StatelessWidget {
 
         if (confirm != true) return;
 
-        final today = DateTime.now();
-        final dateString = "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
-
         if (context.mounted) {
           showDialog(
             context: context,
             builder: (_) => OverrideClassDialog(
               entry: entry,
               subjectName: subjCode,
-              dateString: dateString,
               currentTeacherId: currentTeacherId!,
+              // ✅ FIX: The correct callback param to trigger the dashboard refresh
+              onOverrideComplete: () => ref.invalidate(teacherDashboardProvider),
             ),
           );
         }
@@ -383,8 +383,7 @@ class TimetableGrid extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (isTeacher && !canOverride && isToday && !isCancelled)
-                  const Icon(Icons.lock_outline, size: 12, color: Colors.grey),
+                // ✅ FIX: Removed the lock icon completely from this row
               ],
             ),
           ],
