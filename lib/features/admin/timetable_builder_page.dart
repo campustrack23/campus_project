@@ -57,7 +57,7 @@ class _TimetableBuilderPageState extends ConsumerState<TimetableBuilderPage> {
     };
   }
 
-  // ✅ NEW: Strict filtering logic to ONLY get subjects for the selected year
+  // Strict filtering logic to ONLY get subjects for the selected year
   List<Subject> _getSubjectsForSelectedYear(List<Subject> allSubjects) {
     return allSubjects.where((s) {
       final sem = s.semester.toString();
@@ -93,7 +93,7 @@ class _TimetableBuilderPageState extends ConsumerState<TimetableBuilderPage> {
           final users = data['users'] as List<UserAccount>;
           final teachers = users.where((u) => u.role == UserRole.teacher).toList();
 
-          // 1. Filter Entries for the list
+          // 1. Filter Entries for the list (Dynamic Year Filtering)
           final sectionPrefix = _getSectionPrefix(_selectedYear);
           final filteredEntries = allEntries
               .where((e) => e.section.startsWith(sectionPrefix) && e.dayOfWeek == _selectedDay)
@@ -210,6 +210,8 @@ class _TimetableBuilderPageState extends ConsumerState<TimetableBuilderPage> {
     final colorScheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    final bool hasTeachers = entry.teacherIds.isNotEmpty;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
@@ -302,23 +304,32 @@ class _TimetableBuilderPageState extends ConsumerState<TimetableBuilderPage> {
                         ),
                       ],
                     ),
-                    if (entry.teacherIds.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      Divider(height: 1, color: isDark ? Colors.white12 : Colors.black12),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Icon(Icons.person_outline, size: 14, color: colorScheme.onSurfaceVariant),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              '${entry.teacherIds.length} Teacher(s) Assigned',
-                              style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600),
+
+                    const SizedBox(height: 12),
+                    Divider(height: 1, color: isDark ? Colors.white12 : Colors.black12),
+                    const SizedBox(height: 12),
+
+                    // Teacher Assignment Indicator
+                    Row(
+                      children: [
+                        Icon(
+                            hasTeachers ? Icons.person_rounded : Icons.person_off_rounded,
+                            size: 14,
+                            color: hasTeachers ? colorScheme.onSurfaceVariant : colorScheme.error
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            hasTeachers ? '${entry.teacherIds.length} Teacher(s) Assigned' : 'No Teacher Assigned (Tap Edit)',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: hasTeachers ? colorScheme.onSurfaceVariant : colorScheme.error,
+                                fontWeight: FontWeight.w600
                             ),
                           ),
-                        ],
-                      )
-                    ]
+                        ),
+                      ],
+                    )
                   ],
                 ),
               ),
@@ -355,16 +366,15 @@ class _TimetableBuilderPageState extends ConsumerState<TimetableBuilderPage> {
   }
 
   // ---------------------------------------------------------------------------
-  // ADD / EDIT DIALOG
+  // ADD / EDIT DIALOG W/ FIREBASE SYNC
   // ---------------------------------------------------------------------------
   Future<void> _showEditDialog(TimetableEntry? entry, List<Subject> validSubjects, List<UserAccount> teachers) async {
     final isNew = entry == null;
     final id = entry?.id ?? const Uuid().v4();
 
-    // If editing, and the subject isn't in our filtered list, we must add it temporarily so it doesn't crash the dropdown
     String? subjectId = entry?.subjectId;
     if (subjectId != null && !validSubjects.any((s) => s.id == subjectId)) {
-      subjectId = null; // Force them to pick a valid one for this year
+      subjectId = null;
     } else if (subjectId == null && validSubjects.isNotEmpty) {
       subjectId = validSubjects.first.id;
     }
@@ -377,15 +387,17 @@ class _TimetableBuilderPageState extends ConsumerState<TimetableBuilderPage> {
     final roomCtrl = TextEditingController(text: entry?.room ?? 'Room ');
 
     final Set<String> selectedTeacherIds = (entry?.teacherIds ?? []).toSet();
+    bool isSaving = false; // Database Sync State
 
     await showDialog(
       context: context,
+      barrierDismissible: !isSaving,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setState) {
           return Dialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
             child: Container(
-              width: 500, // Enterprise wide dialog
+              width: 500,
               padding: const EdgeInsets.all(24),
               child: SingleChildScrollView(
                 child: Column(
@@ -483,73 +495,110 @@ class _TimetableBuilderPageState extends ConsumerState<TimetableBuilderPage> {
                     ),
                     const SizedBox(height: 24),
 
-                    const Text('Assigned Teachers', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    // TEACHER ASSIGNMENT AREA
+                    Row(
+                      children: [
+                        const Text('Assigned Teachers / Lab Assistants', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        const Spacer(),
+                        if (selectedTeacherIds.isEmpty)
+                          const Text('⚠️ Required', style: TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
                     const SizedBox(height: 8),
                     Container(
                       width: double.infinity,
+                      constraints: const BoxConstraints(maxHeight: 180), // Prevents huge lists from breaking UI
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                           color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5))
                       ),
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: teachers.map((t) {
-                          final isSel = selectedTeacherIds.contains(t.id);
-                          return FilterChip(
-                            label: Text(t.name),
-                            selected: isSel,
-                            showCheckmark: false,
-                            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-                            selectedColor: Theme.of(context).colorScheme.primaryContainer,
-                            labelStyle: TextStyle(color: isSel ? Theme.of(context).colorScheme.onPrimaryContainer : null, fontWeight: isSel ? FontWeight.bold : null),
-                            onSelected: (sel) {
-                              setState(() {
-                                if (sel) {
-                                  selectedTeacherIds.add(t.id);
-                                } else {
-                                  selectedTeacherIds.remove(t.id);
-                                }
-                              });
-                            },
-                          );
-                        }).toList(),
+                      child: SingleChildScrollView(
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: teachers.map((t) {
+                            final isSel = selectedTeacherIds.contains(t.id);
+                            return FilterChip(
+                              label: Text(t.name),
+                              selected: isSel,
+                              showCheckmark: true,
+                              checkmarkColor: isSel ? Theme.of(context).colorScheme.onPrimaryContainer : null,
+                              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+                              selectedColor: Theme.of(context).colorScheme.primaryContainer,
+                              labelStyle: TextStyle(color: isSel ? Theme.of(context).colorScheme.onPrimaryContainer : null, fontWeight: isSel ? FontWeight.bold : null),
+                              onSelected: (sel) {
+                                setState(() {
+                                  if (sel) {
+                                    selectedTeacherIds.add(t.id);
+                                  } else {
+                                    selectedTeacherIds.remove(t.id);
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 32),
+
+                    // SAVE BUTTONS
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                        TextButton(
+                            onPressed: isSaving ? null : () => Navigator.pop(context),
+                            child: const Text('Cancel')
+                        ),
                         const SizedBox(width: 12),
                         FilledButton(
-                          onPressed: () async {
+                          onPressed: isSaving ? null : () async {
                             if (subjectId == null || subjectId!.isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a valid subject.')));
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a valid subject.'), backgroundColor: Colors.red));
                               return;
                             }
 
-                            final newEntry = TimetableEntry(
-                              id: id,
-                              subjectId: subjectId!,
-                              dayOfWeek: day,
-                              startTime: startCtrl.text.trim(),
-                              endTime: endCtrl.text.trim(),
-                              room: roomCtrl.text.trim(),
-                              section: section,
-                              teacherIds: selectedTeacherIds.toList(),
-                            );
+                            setState(() => isSaving = true); // Start Spinner
 
-                            await ref.read(timetableRepoProvider).addOrUpdate(newEntry);
-                            ref.invalidate(timetableBuilderProvider);
+                            try {
+                              final newEntry = TimetableEntry(
+                                id: id,
+                                subjectId: subjectId!,
+                                dayOfWeek: day,
+                                startTime: startCtrl.text.trim(),
+                                endTime: endCtrl.text.trim(),
+                                room: roomCtrl.text.trim(),
+                                section: section,
+                                teacherIds: selectedTeacherIds.toList(),
+                              );
 
-                            if (context.mounted) Navigator.pop(context);
+                              // 1. Push to Firebase
+                              await ref.read(timetableRepoProvider).addOrUpdate(newEntry);
+
+                              // 2. Refresh Local State
+                              ref.invalidate(timetableBuilderProvider);
+
+                              // 3. Success Feedback
+                              if (context.mounted) {
+                                Navigator.pop(context);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text(isNew ? 'Class Added to Firebase.' : 'Class Updated in Firebase.'), backgroundColor: Colors.green)
+                                );
+                              }
+                            } catch (e) {
+                              setState(() => isSaving = false);
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+                              }
+                            }
                           },
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            child: Text('Save Class'),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            child: isSaving
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                : const Text('Save to Database'),
                           ),
                         ),
                       ],
@@ -565,14 +614,14 @@ class _TimetableBuilderPageState extends ConsumerState<TimetableBuilderPage> {
   }
 
   // ---------------------------------------------------------------------------
-  // DELETE CONFIRMATION
+  // DELETE CONFIRMATION W/ FIREBASE SYNC
   // ---------------------------------------------------------------------------
   Future<void> _confirmDelete(String entryId) async {
     final confirm = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Delete Class?'),
-          content: const Text('Are you sure you want to remove this class from the timetable? This cannot be undone.'),
+          content: const Text('Are you sure you want to remove this class? It will be permanently deleted from Firebase.'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
             FilledButton(
@@ -585,8 +634,19 @@ class _TimetableBuilderPageState extends ConsumerState<TimetableBuilderPage> {
     );
 
     if (confirm == true) {
-      await ref.read(timetableRepoProvider).delete(entryId);
-      ref.invalidate(timetableBuilderProvider);
+      try {
+        // Push Delete to Firebase
+        await ref.read(timetableRepoProvider).delete(entryId);
+        ref.invalidate(timetableBuilderProvider);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Class deleted from Firebase.'), backgroundColor: Colors.orange));
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to delete: $e'), backgroundColor: Colors.red));
+        }
+      }
     }
   }
 }
