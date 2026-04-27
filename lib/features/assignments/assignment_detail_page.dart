@@ -23,95 +23,154 @@ class _AssignmentDetailPageState extends ConsumerState<AssignmentDetailPage> {
   Widget build(BuildContext context) {
     final user = ref.watch(authStateProvider).value;
     final isStudent = user?.role == UserRole.student;
-    final dueDate = widget.assignment['dueDate'] != null
-        ? DateFormat('MMM d, yyyy - h:mm a').format(DateTime.parse(widget.assignment['dueDate']))
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // ✅ FIX: Support both camelCase and snake_case formatting
+    final rawDueDate = widget.assignment['dueDate'] ?? widget.assignment['due_date'];
+    final dueDate = rawDueDate != null
+        ? DateFormat('EEEE, MMM d, yyyy • h:mm a').format(DateTime.parse(rawDueDate))
         : 'No due date';
 
+    final displaySubject = widget.assignment['subjectName'] ?? widget.assignment['subject_name'] ?? 'General Subject';
+    final displayTitle = widget.assignment['title'] ?? 'Untitled Assignment';
+    final displayDesc = widget.assignment['description'] ?? 'No instructions provided by the instructor.';
+
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('Assignment'),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // --- HEADER ---
-            Text(
-              widget.assignment['subjectName'] ?? 'General Subject',
-              style: TextStyle(color: Colors.indigo[700], fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              widget.assignment['title'] ?? 'Untitled Assignment',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text('Due $dueDate', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w500)),
-            const Divider(height: 32),
-
-            // --- INSTRUCTIONS ---
-            const Text('Instructions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Text(
-              widget.assignment['description'] ?? 'No instructions provided.',
-              style: const TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 32),
-
-            // --- MY WORK SECTION (TEAMS STYLE) ---
-            if (isStudent) ...[
-              const Text('My work', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Card(
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  side: BorderSide(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(8),
+            // --- PREMIUM HEADER ---
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(24, 100, 24, 32),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [colorScheme.primary, colorScheme.tertiary],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
+                borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(32), bottomRight: Radius.circular(32)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
+                    child: Text(
+                      displaySubject.toUpperCase(),
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 10, letterSpacing: 1.0),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    displayTitle,
+                    style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w900, height: 1.2),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
                     children: [
-                      TextField(
-                        controller: _submissionCtrl,
-                        decoration: const InputDecoration(
-                          hintText: 'Paste Google Drive Link or Text here...',
-                          border: InputBorder.none,
-                          icon: Icon(Icons.link),
-                        ),
-                        maxLines: null,
-                      ),
-                      const Divider(),
-                      TextButton.icon(
-                        onPressed: () {
-                          // TODO: Implement File Picker package here in the future
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('File upload requires file_picker package. Use link for now.')),
-                          );
-                        },
-                        icon: const Icon(Icons.upload_file),
-                        label: const Text('Attach File (Flask Upload)'),
-                      )
+                      Icon(Icons.calendar_today_rounded, color: Colors.white.withValues(alpha: 0.8), size: 16),
+                      const SizedBox(width: 8),
+                      Text('Due: $dueDate', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                     ],
                   ),
-                ),
+                ],
               ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: FilledButton(
-                  style: FilledButton.styleFrom(backgroundColor: Colors.indigo),
-                  onPressed: _isSubmitting ? null : _turnInAssignment,
-                  child: _isSubmitting
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text('Turn in', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                ),
+            ),
+
+            // --- INSTRUCTIONS ---
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Instructions', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: colorScheme.primary, letterSpacing: 1.0)),
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: colorScheme.surface,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: isDark ? Colors.white12 : Colors.black.withValues(alpha: 0.05)),
+                    ),
+                    child: Text(
+                      displayDesc,
+                      style: const TextStyle(fontSize: 15, height: 1.6),
+                    ),
+                  ),
+
+                  const SizedBox(height: 40),
+
+                  // --- MY WORK SECTION (TEAMS STYLE) ---
+                  if (isStudent) ...[
+                    Text('Submit Your Work', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: colorScheme.primary, letterSpacing: 1.0)),
+                    const SizedBox(height: 12),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: colorScheme.surface,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: colorScheme.outlineVariant.withValues(alpha: 0.5)),
+                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
+                      ),
+                      child: Column(
+                        children: [
+                          TextField(
+                            controller: _submissionCtrl,
+                            maxLines: 4,
+                            decoration: InputDecoration(
+                              hintText: 'Paste Google Drive Link or Text here...',
+                              border: InputBorder.none,
+                              contentPadding: const EdgeInsets.all(20),
+                              hintStyle: TextStyle(color: colorScheme.onSurfaceVariant),
+                            ),
+                          ),
+                          Divider(height: 1, color: colorScheme.outlineVariant.withValues(alpha: 0.5)),
+                          Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Row(
+                              children: [
+                                TextButton.icon(
+                                  onPressed: () {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('File upload requires backend file storage. Please paste a link for now.')),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.attach_file_rounded),
+                                  label: const Text('Attach File'),
+                                ),
+                              ],
+                            ),
+                          )
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                        onPressed: _isSubmitting ? null : _turnInAssignment,
+                        icon: _isSubmitting
+                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                            : const Icon(Icons.send_rounded),
+                        label: Text(_isSubmitting ? 'Turning In...' : 'Turn In Assignment', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ]
+                ],
               ),
-            ]
+            ),
           ],
         ),
       ),
@@ -120,7 +179,7 @@ class _AssignmentDetailPageState extends ConsumerState<AssignmentDetailPage> {
 
   Future<void> _turnInAssignment() async {
     if (_submissionCtrl.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please attach work before turning in.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please attach work or paste a link before turning in.'), backgroundColor: Colors.orange));
       return;
     }
 
@@ -130,11 +189,11 @@ class _AssignmentDetailPageState extends ConsumerState<AssignmentDetailPage> {
       await ref.read(apiServiceProvider).submitAssignment(id, {'submission': _submissionCtrl.text});
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Assignment Turned In!')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Assignment Turned In Successfully!'), backgroundColor: Colors.green));
         Navigator.pop(context); // Go back to list
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
